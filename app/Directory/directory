@@ -1,0 +1,6 @@
+Project Overview = This app simulates an AI PM interview session: it asks questions, evaluates answers with an AI interviewer, then summarizes learning gaps with an AI teacher.
+
+route.ts = This is the AI interview evaluator. If it involves AI reasoning, judging, scoring, or feedback, it belongs here. Calls the LLM (Claude) + Contains the evaluation rubric + Scores answers + Produces structured feedback and verdict.
+questionBank.ts = This is the interview content/script. All interview questions + Question types + Difficulty + mustCover topics
+page.tsx = This is the interview session UI. “This is the interviewer’s room — the screen the candidate interacts with.” Which question is shown + User’s answer + Session progress (1 of 5 questions) + Buttons (Submit, Next, Try again) + Calls /api/evaluate + Shows feedback
+.env.local = Secrets + configuration. API keys + Model names + Environment-specific values
