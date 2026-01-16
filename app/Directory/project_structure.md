@@ -1,6 +1,6 @@
 # AI PM Interview Practice – Project Structure
 
-This document explains the purpose of each core file.
+This document explains the purpose of each core file and the mental model behind the system.
 
 ---
 
@@ -10,11 +10,11 @@ This document explains the purpose of each core file.
 
 Responsible for:
 
-- Displaying questions
+- Displaying interview questions
 - Capturing user answers
 - Managing session state (current question, count, reset)
-- Calling the evaluation API
-- Rendering feedback
+- Calling evaluation and teacher APIs
+- Rendering real-time feedback and end-of-session summaries
 
 Does NOT:
 
@@ -30,16 +30,39 @@ Does NOT:
 
 Responsible for:
 
-- Sending answers to the LLM
-- Applying evaluation rubrics
-- Scoring responses
-- Producing verdicts and feedback
+- Sending user answers to the LLM
+- Applying structured evaluation rubrics
+- Scoring responses across PM dimensions
+- Producing verdicts (hire / borderline / no-hire)
+- Returning normalized, machine-readable evaluation output
 
 Does NOT:
 
 - Render UI
 - Manage session state
-- Know about buttons or pages
+- Know about buttons, pages, or user interactions
+
+---
+
+## app/api/teacher/route.ts
+
+**Role:** AI Teacher (Coach)
+
+Responsible for:
+
+- Reviewing all responses from a completed session
+- Identifying recurring strengths and gaps
+- Detecting missing or misunderstood theory
+- Generating:
+  - A performance summary
+  - Targeted improvement areas
+  - Practice drills and learning suggestions
+
+Does NOT:
+
+- Evaluate individual answers in isolation
+- Control interview flow
+- Render UI or manage state
 
 ---
 
@@ -50,14 +73,15 @@ Does NOT:
 Responsible for:
 
 - Storing all interview questions
-- Defining question types and difficulty
+- Defining question types and difficulty levels
 - Providing must-cover topics for evaluation
+- Acting as a single source of truth for interview content
 
 Does NOT:
 
-- Contain logic
+- Contain application logic
 - Call APIs
-- Manage user state
+- Manage user or session state
 
 ---
 
@@ -77,7 +101,8 @@ Must never be committed to version control.
 
 ## Mental Model Summary
 
-- `page.tsx` = Interview room
-- `questionBank.ts` = Question script
-- `route.ts` = Interviewer brain
-- `.env.local` = Locked drawer with secrets
+- `page.tsx` → Interview room (UI + orchestration)
+- `questionBank.ts` → Question script
+- `evaluate/route.ts` → Interviewer brain (scoring + verdicts)
+- `teacher/route.ts` → Coach brain (reflection + improvement)
+- `.env.local` → Locked drawer with secrets
