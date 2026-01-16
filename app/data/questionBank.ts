@@ -422,4 +422,37 @@ export const QUESTION_BANK: Question[] = [
       "What is the difference between fine-tuning a model and using retrieval-augmented generation (RAG)?",
     mustCover: ["fine-tuning", "rag", "tradeoffs"],
   },
+  {
+    id: "technical-007",
+    type: "technical",
+    difficulty: 2,
+    question: "How does Model Context Protocol work?",
+  },
+  {
+    id: "technical-008",
+    type: "technical",
+    difficulty: 2,
+    question: "What are evals?",
+  },
+  {
+    id: "technical-010",
+    type: "technical",
+    difficulty: 3,
+    question:
+      "Can you explain how to build an agent? Talk me through the process.",
+  },
+  {
+    id: "technical-011",
+    type: "technical",
+    difficulty: 3,
+    question:
+      "What are the patterns and behaviours you've noticed for each one of the different LLMs out there? What are the strengths and weaknesses of different LLms?",
+  },
+  {
+    id: "technical-012",
+    type: "technical",
+    difficulty: 3,
+    question:
+      "How have the behaviours of each one of the LLMs changed over time?",
+  },
 ];
