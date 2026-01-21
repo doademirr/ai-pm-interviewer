@@ -1,36 +1,37 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# AI PM Interview Practice
 
-## Getting Started
+An AI-powered interview preparation tool for Product Managers who want to work for AI-native companies. This tool simulates an interview + coaching loop with immediate, structured feedback.
 
-First, run the development server:
+## What this does
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+- Presents realistic AI PM interview questions
+- Evaluates each response immediately (hire / borderline / no-hire)
+- Scores answers across key PM dimensions
+- AI Teacher acts as a coach to provide structures feedback after a full session
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## How it works
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+1. User answers up to 5 interview questions per session
+2. Each answer is evaluated instantly with:
+   - Verdict
+   - Scores (1–5)
+   - Targeted feedback
+3. After the session, an AI Teacher:
+   - Summarizes performance
+   - Identifies recurring gaps
+   - Suggests drills for improvement
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Tech Stack
 
-## Learn More
+- Next.js (App Router)
+- React
+- TypeScript
+- Claude AI model API for structured answer evaluation and coaching feedback
+- Server-side evaluation routes
 
-To learn more about Next.js, take a look at the following resources:
+## Roadmap
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+1. Expand evaluation rubrics for different interview question types
+2. Real-time AI-generated follow-up questions
+3. Optional: upload company name and job description to personalise interviews
+4. Voice-based answering to simulate live interviews
