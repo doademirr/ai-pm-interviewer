@@ -34,9 +34,11 @@ export default function Home() {
   // session state
   const [sessionCount, setSessionCount] = useState(0);
   const [usedQuestionIds, setUsedQuestionIds] = useState<string[]>([]);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [sessionEvaluations, setSessionEvaluations] = useState<any[]>([]);
 
   // teacher state
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [teacher, setTeacher] = useState<any>(null);
   const [teacherLoading, setTeacherLoading] = useState(false);
   const [teacherError, setTeacherError] = useState<string | null>(null);
@@ -46,6 +48,7 @@ export default function Home() {
   const [currentQuestion, setCurrentQuestion] = useState<Question | null>(null);
 
   const [answer, setAnswer] = useState("");
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [evaluation, setEvaluation] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -82,6 +85,8 @@ export default function Home() {
           question: currentQuestion.question,
           answer,
           wordCount,
+          questionType: currentQuestion.type,
+          mustCover: currentQuestion.mustCover ?? [],
         }),
       });
 
@@ -106,6 +111,7 @@ export default function Home() {
 
       setSessionCount((c) => c + 1);
       setUsedQuestionIds((ids) => [...ids, currentQuestion.id]);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (err: any) {
       setError(err?.message || "Something went wrong");
     } finally {
@@ -158,6 +164,7 @@ export default function Home() {
 
       const data = await res.json();
       setTeacher(data);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (err: any) {
       setTeacherError(
         err?.message || "Something went wrong generating teacher feedback."

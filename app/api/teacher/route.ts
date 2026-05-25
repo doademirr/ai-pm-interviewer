@@ -70,11 +70,15 @@ function clamp(n: number, min: number, max: number) {
   return Math.max(min, Math.min(max, n));
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function normalizeTeacher(out: any): TeacherOut {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const safeArray = (v: any) => (Array.isArray(v) ? v : []);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const safeString = (v: any, fallback = "") =>
     typeof v === "string" ? v : fallback;
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const theory_gaps = safeArray(out?.theory_gaps).map((g: any) => ({
     term: safeString(g?.term, "Unknown term"),
     what_it_means: safeString(g?.what_it_means, ""),
@@ -84,21 +88,26 @@ function normalizeTeacher(out: any): TeacherOut {
       typeof g?.confidence === "number" ? clamp(g.confidence, 0, 1) : undefined,
   }));
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const drills = safeArray(out?.drills).map((d: any) => ({
     title: safeString(d?.title, "Drill"),
     prompt: safeString(d?.prompt, ""),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     what_good_looks_like: safeArray(d?.what_good_looks_like).map((x: any) =>
       safeString(x, "")
     ),
   }));
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const weekly_plan = safeArray(out?.weekly_plan).map((w: any) => ({
     focus_area: safeString(w?.focus_area, "Focus area"),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     actions: safeArray(w?.actions).map((x: any) => safeString(x, "")),
   }));
 
   return {
     summary: safeString(out?.summary, ""),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     recurring_gaps: safeArray(out?.recurring_gaps).map((x: any) =>
       safeString(x, "")
     ),
@@ -167,6 +176,14 @@ IMPORTANT:
 
 In this app, "RAG" means Retrieval-Augmented Generation (LLM + retrieval), NOT Red/Amber/Green.
 
+Bonus signal assessment:
+Each question in the session data includes a bonus_signal (boolean) and bonus_description field from the evaluator. Assess the overall pattern and apply this logic to your summary and encouragement:
+- Multiple bonus signals + some weak answers = potential superstar. Lead with this in the summary.
+- All strong answers + no bonus signals = safe hire. Note that bonus moments would elevate to superstar.
+- Clear experience gap + multiple bonus signals = punching above weight. Flag positively.
+- Weak answers + no bonus signals = no hire. Focus feedback on fundamentals.
+When bonus signals exist, explicitly name them by question number in your feedback: e.g. "Your answer on question 3 was a bonus-level response — that's what separates a safe hire from a superstar in a final round."
+
 Return STRICT valid JSON ONLY (no markdown, no extra text) in this exact shape:
 
 {
@@ -230,6 +247,7 @@ ${sessionText}
 
     const data = await res.json();
     const text = (data?.content || [])
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       .map((b: any) => (b.type === "text" ? b.text : ""))
       .join("\n");
 
@@ -262,7 +280,8 @@ ${sessionText}
 
       const repairData = await repairRes.json();
       const repairText = (repairData?.content || [])
-        .map((b: any) => (b.type === "text" ? b.text : ""))
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .map((b: any) => (b.type === "text" ? b.text : ""))
         .join("\n");
 
       parsed = extractJson(repairText);
@@ -279,6 +298,7 @@ ${sessionText}
     const filtered = filterTheoryGapsToSessionText(normalized, sessionText);
 
     return NextResponse.json(filtered);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } catch (e: any) {
     return NextResponse.json(
       { error: e?.message || "Unknown server error" },
