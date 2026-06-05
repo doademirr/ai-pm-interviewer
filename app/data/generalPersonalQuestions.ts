@@ -1,6 +1,6 @@
-// Parked for future integration. These questions are excluded from the v1 question bank
-// because the general_personal rubric requires spy agent context (company culture data)
-// to activate the culture_fit dimension. Re-integrate when the spy agent is built.
+// general_personal questions. ACTIVE — merged into the question pool in page.tsx now that
+// the spy agent exists to activate the culture_fit dimension. Kept in a separate file
+// (not questionBank.ts) to avoid a circular import; page.tsx composes both into one pool.
 import type { Question } from "./questionBank";
 
 export const GENERAL_PERSONAL_QUESTIONS: Question[] = [

@@ -6,47 +6,77 @@ import { systemPrompt as technicalProductSensePrompt } from "./evaluators/techni
 import { systemPrompt as behavioralPrompt } from "./evaluators/behavioral";
 import { systemPrompt as technicalPrompt } from "./evaluators/technical";
 import { systemPrompt as estimationPrompt } from "./evaluators/estimation";
-import { systemPrompt as generalPersonalPrompt } from "./evaluators/general_personal";
+import { buildSystemPrompt as buildGeneralPersonalPrompt } from "./evaluators/general_personal";
+import type { CultureProfile } from "../spy/schema";
 
 type Evaluator = { systemPrompt: string; thresholds: VerdictThresholds };
 
-const EVALUATORS: Record<QuestionType, Evaluator> = {
-  product_sense:          { systemPrompt: productSensePrompt,         thresholds: THRESHOLDS_5DIM },
-  technical_product_sense:{ systemPrompt: technicalProductSensePrompt,thresholds: THRESHOLDS_5DIM },
-  behavioral:             { systemPrompt: behavioralPrompt,           thresholds: THRESHOLDS_5DIM },
-  technical:              { systemPrompt: technicalPrompt,            thresholds: THRESHOLDS_5DIM },
-  estimation:             { systemPrompt: estimationPrompt,           thresholds: THRESHOLDS_4DIM },
-  general_personal:       { systemPrompt: generalPersonalPrompt,      thresholds: THRESHOLDS_4DIM },
+// general_personal is intentionally absent — it's built dynamically (its culture_fit
+// dimension is conditional on the spy profile), so it doesn't fit the static map.
+const EVALUATORS: Record<Exclude<QuestionType, "general_personal">, Evaluator> = {
+  product_sense:          { systemPrompt: productSensePrompt,          thresholds: THRESHOLDS_5DIM },
+  technical_product_sense:{ systemPrompt: technicalProductSensePrompt, thresholds: THRESHOLDS_5DIM },
+  behavioral:             { systemPrompt: behavioralPrompt,            thresholds: THRESHOLDS_5DIM },
+  technical:              { systemPrompt: technicalPrompt,             thresholds: THRESHOLDS_5DIM },
+  estimation:             { systemPrompt: estimationPrompt,            thresholds: THRESHOLDS_4DIM },
 };
 
-function selectEvaluator(questionType: string): Evaluator {
-  return EVALUATORS[questionType as QuestionType] ?? EVALUATORS.product_sense;
+/**
+ * Build a compact company-culture context for the general_personal evaluator —
+ * but only when the spy profile clears the gate (status ok + confidence not low).
+ * This gate IS the culture_fit on/off switch. Returns null → culture_fit stays inactive.
+ */
+function buildCultureContext(profile: unknown): string | null {
+  const p = profile as CultureProfile | undefined;
+  if (!p || p.status !== "ok" || p.confidence === "low") return null;
+  const lines = [
+    `Company: ${p.company?.name ?? "—"}${p.industry ? ` — ${p.industry}` : ""}`,
+    p.company_stage ? `Stage: ${p.company_stage}` : "",
+    p.work_style ? `Work style: ${p.work_style}` : "",
+    p.values?.length
+      ? `Stated values: ${p.values.map((v) => `${v.value} [${v.confidence} confidence]`).join("; ")}`
+      : "",
+    p.culture_fit_notes ? `Culture notes: ${p.culture_fit_notes}` : "",
+  ].filter(Boolean);
+  return lines.length ? lines.join("\n") : null;
 }
 
 export async function POST(req: Request) {
   try {
-    const { question, answer, wordCount, questionType, mustCover } = await req.json();
+    const { question, answer, wordCount, questionType, mustCover, cultureProfile } = await req.json();
 
     const apiKey = process.env.ANTHROPIC_API_KEY;
-    const model = process.env.ANTHROPIC_MODEL || "claude-3-haiku-20240307";
+    const model = process.env.ANTHROPIC_MODEL || "claude-haiku-4-5";
 
     if (!apiKey) {
       return NextResponse.json(
-        {
-          error: "Missing ANTHROPIC_API_KEY. Add it to .env.local and restart.",
-        },
-        { status: 500 }
+        { error: "Missing ANTHROPIC_API_KEY. Add it to .env.local and restart." },
+        { status: 500 },
       );
     }
 
-    const evaluator = selectEvaluator(questionType ?? "product_sense");
-    const mustCoverTopics = Array.isArray(mustCover) && mustCover.length > 0
-      ? mustCover as string[]
-      : null;
+    const qType = (questionType ?? "product_sense") as QuestionType;
+
+    // general_personal: activate culture_fit (5-dim) only when the spy profile clears the gate.
+    let baseSystem: string;
+    let thresholds: VerdictThresholds;
+    if (qType === "general_personal") {
+      const cultureContext = buildCultureContext(cultureProfile);
+      baseSystem = buildGeneralPersonalPrompt(cultureContext ?? undefined);
+      thresholds = cultureContext ? THRESHOLDS_5DIM : THRESHOLDS_4DIM;
+    } else {
+      const evaluator =
+        EVALUATORS[qType as Exclude<QuestionType, "general_personal">] ?? EVALUATORS.product_sense;
+      baseSystem = evaluator.systemPrompt;
+      thresholds = evaluator.thresholds;
+    }
+
+    const mustCoverTopics =
+      Array.isArray(mustCover) && mustCover.length > 0 ? (mustCover as string[]) : null;
 
     const system = mustCoverTopics
-      ? `${evaluator.systemPrompt}\n\n---\n\nThis specific question is looking for: ${mustCoverTopics.join(", ")}.\nWeight your scoring to reflect how well the candidate covered these areas. Do not penalise for missing topics the question did not ask for.`
-      : evaluator.systemPrompt;
+      ? `${baseSystem}\n\n---\n\nThis specific question is looking for: ${mustCoverTopics.join(", ")}.\nWeight your scoring to reflect how well the candidate covered these areas. Do not penalise for missing topics the question did not ask for.`
+      : baseSystem;
 
     const user = `
 Question:
@@ -64,20 +94,13 @@ ${answer}
           type: "object",
           additionalProperties: false,
           properties: {
-            interview_verdict: {
-              type: "string",
-              enum: ["hire", "borderline", "no_hire"],
-            },
+            interview_verdict: { type: "string", enum: ["hire", "borderline", "no_hire"] },
             confidence: { type: "number", minimum: 0, maximum: 1 },
             scores: {
               type: "object",
               additionalProperties: { type: "number", minimum: 1, maximum: 5 },
             },
-            overall_feedback: {
-              type: "array",
-              items: { type: "string" },
-              minItems: 1,
-            },
+            overall_feedback: { type: "array", items: { type: "string" }, minItems: 1 },
             strengths: { type: "array", items: { type: "string" } },
             gaps: { type: "array", items: { type: "string" } },
             pacing_feedback: { type: "string" },
@@ -124,27 +147,24 @@ ${answer}
     if (!res.ok) {
       return NextResponse.json(
         { error: `Anthropic API error: ${res.status}`, details: raw },
-        { status: 500 }
+        { status: 500 },
       );
     }
 
     const data = JSON.parse(raw);
     const toolUse = (data?.content || []).find(
-      (b: Record<string, unknown>) => b.type === "tool_use"
+      (b: Record<string, unknown>) => b.type === "tool_use",
     ) as Record<string, unknown> | undefined;
 
     if (!toolUse?.input) {
-      return NextResponse.json(
-        { error: "No tool_use block returned.", raw: data },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: "No tool_use block returned.", raw: data }, { status: 500 });
     }
 
-    return NextResponse.json(normalize(toolUse.input, evaluator.thresholds));
+    return NextResponse.json(normalize(toolUse.input, thresholds));
   } catch (e: unknown) {
     return NextResponse.json(
       { error: e instanceof Error ? e.message : "Unknown server error" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

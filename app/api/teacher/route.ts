@@ -146,7 +146,7 @@ export async function POST(req: Request) {
     const { sessionEvaluations } = await req.json();
 
     const apiKey = process.env.ANTHROPIC_API_KEY;
-    const model = process.env.ANTHROPIC_MODEL || "claude-3-haiku-20240307";
+    const model = process.env.ANTHROPIC_MODEL || "claude-haiku-4-5";
 
     if (!apiKey) {
       return NextResponse.json(

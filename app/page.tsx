@@ -6,6 +6,11 @@ import {
   type Question,
   type QuestionType,
 } from "./data/questionBank";
+import { GENERAL_PERSONAL_QUESTIONS } from "./data/generalPersonalQuestions";
+import type { CultureProfile } from "./api/spy/schema";
+
+// general_personal questions are re-enabled now that the spy agent can activate culture_fit.
+const QUESTIONS: Question[] = [...QUESTION_BANK, ...GENERAL_PERSONAL_QUESTIONS];
 
 type QuestionTypeOption = "random" | QuestionType;
 
@@ -16,12 +21,17 @@ function pickRandomQuestion(params: {
 }): Question | null {
   const { type, difficulty, usedIds } = params;
 
-  let pool = QUESTION_BANK.filter((q) => !usedIds.includes(q.id));
+  let pool = QUESTIONS.filter((q) => !usedIds.includes(q.id));
   if (type !== "random") pool = pool.filter((q) => q.type === type);
   if (difficulty) pool = pool.filter((q) => q.difficulty === difficulty);
 
   if (pool.length === 0) return null;
   return pool[Math.floor(Math.random() * pool.length)];
+}
+
+// The gate that switches culture_fit scoring on (mirrors evaluate/route.ts).
+function cultureFitActive(p: CultureProfile | null): boolean {
+  return !!p && p.status === "ok" && p.confidence !== "low";
 }
 
 export default function Home() {
@@ -36,6 +46,12 @@ export default function Home() {
   const [usedQuestionIds, setUsedQuestionIds] = useState<string[]>([]);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [sessionEvaluations, setSessionEvaluations] = useState<any[]>([]);
+
+  // spy agent state
+  const [companyName, setCompanyName] = useState("");
+  const [cultureProfile, setCultureProfile] = useState<CultureProfile | null>(null);
+  const [spyLoading, setSpyLoading] = useState(false);
+  const [spyError, setSpyError] = useState<string | null>(null);
 
   // teacher state
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -68,6 +84,29 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  async function handleResearchCompany() {
+    if (!companyName.trim()) return;
+    setSpyLoading(true);
+    setSpyError(null);
+    try {
+      const res = await fetch("/api/spy", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ companyName: companyName.trim() }),
+      });
+      if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(`Spy API error: ${res.status} - ${errText}`);
+      }
+      const data: CultureProfile = await res.json();
+      setCultureProfile(data);
+    } catch (err) {
+      setSpyError(err instanceof Error ? err.message : "Company research failed.");
+    } finally {
+      setSpyLoading(false);
+    }
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!currentQuestion) return;
@@ -87,6 +126,8 @@ export default function Home() {
           wordCount,
           questionType: currentQuestion.type,
           mustCover: currentQuestion.mustCover ?? [],
+          // Passed for every question; the evaluator only uses it for general_personal.
+          cultureProfile,
         }),
       });
 
@@ -175,6 +216,93 @@ export default function Home() {
   }
 
   // -----------------------
+  // Company Intelligence panel (advisory channel — separate from scoring)
+  // -----------------------
+  function CompanyPanel() {
+    const active = cultureFitActive(cultureProfile);
+    return (
+      <div style={{ padding: 16, border: "1px solid #ddd", borderRadius: 8, marginBottom: 16 }}>
+        <h2 style={{ fontSize: 18, fontWeight: 600, marginBottom: 8 }}>
+          Target company <span style={{ fontWeight: 400, fontSize: 13, color: "#666" }}>(optional)</span>
+        </h2>
+        <p style={{ fontSize: 13, color: "#666", marginBottom: 8 }}>
+          Research a company to turn on culture-fit scoring and see what to expect.
+        </p>
+        <div style={{ display: "flex", gap: 8 }}>
+          <input
+            value={companyName}
+            onChange={(e) => setCompanyName(e.target.value)}
+            placeholder="e.g. Maven Clinic"
+            style={{ flex: 1, padding: 10, borderRadius: 8, border: "1px solid #ddd", fontSize: 14 }}
+          />
+          <button
+            type="button"
+            onClick={handleResearchCompany}
+            disabled={spyLoading || !companyName.trim()}
+            style={{
+              padding: "10px 14px",
+              borderRadius: 8,
+              border: "1px solid #111",
+              background: "#111",
+              color: "white",
+              fontWeight: 600,
+              cursor: "pointer",
+              opacity: spyLoading ? 0.7 : 1,
+            }}
+          >
+            {spyLoading ? "Researching…" : "Research"}
+          </button>
+        </div>
+
+        {spyError && <p style={{ marginTop: 10, color: "crimson", fontSize: 13 }}>Error: {spyError}</p>}
+
+        {cultureProfile && (
+          <div style={{ marginTop: 12 }}>
+            {/* SCORING channel indicator — depends on the gate. */}
+            <p style={{ fontSize: 13, fontWeight: 600 }}>
+              Culture-fit scoring:{" "}
+              <span style={{ color: active ? "green" : "#999" }}>
+                {active ? "ON" : "OFF (not enough confident evidence to score)"}
+              </span>
+            </p>
+
+            {/* ADVISORY channel — shown whenever facts exist, INDEPENDENT of the scoring gate. */}
+            <div style={{ marginTop: 8, fontSize: 13, lineHeight: 1.5 }}>
+              {cultureProfile.company_stage && <div><strong>Stage:</strong> {cultureProfile.company_stage}</div>}
+              {cultureProfile.industry && <div><strong>Industry:</strong> {cultureProfile.industry}</div>}
+              {cultureProfile.work_style && <div><strong>Work style:</strong> {cultureProfile.work_style}</div>}
+              {cultureProfile.team_profile && (
+                <div style={{ marginTop: 6 }}><strong>Team:</strong> {cultureProfile.team_profile}</div>
+              )}
+
+              {cultureProfile.red_flags.length > 0 && (
+                <div style={{ marginTop: 10, padding: 10, background: "#fff7f0", borderRadius: 8, border: "1px solid #f0d8c0" }}>
+                  <div style={{ fontWeight: 600, marginBottom: 4 }}>⚠ Flagged by employee reviews</div>
+                  <ul style={{ margin: 0, paddingLeft: 18 }}>
+                    {cultureProfile.red_flags.map((f, i) => (
+                      <li key={i}>{f}</li>
+                    ))}
+                  </ul>
+                  <div style={{ fontSize: 11, color: "#999", marginTop: 4 }}>
+                    Sourced from public reviews — treat as signal, not established fact.
+                  </div>
+                </div>
+              )}
+
+              {cultureProfile.status === "insufficient_evidence" &&
+                cultureProfile.red_flags.length === 0 &&
+                !cultureProfile.company_stage &&
+                !cultureProfile.work_style && (
+                  <div style={{ color: "#999" }}>No public signal found for this company.</div>
+                )}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // -----------------------
   // TEACHER MODE (after 5)
   // -----------------------
   if (sessionDone) {
@@ -183,6 +311,8 @@ export default function Home() {
         <h1 style={{ fontSize: 28, fontWeight: 700, marginBottom: 8 }}>
           AI PM Interview Practice
         </h1>
+
+        <CompanyPanel />
 
         <p style={{ marginBottom: 16 }}>
           Take a break ☕️ Your AI Teacher will review your answers and suggest
@@ -269,6 +399,8 @@ export default function Home() {
       <h1 style={{ fontSize: 28, fontWeight: 700, marginBottom: 8 }}>
         AI PM Interview Practice
       </h1>
+
+      <CompanyPanel />
 
       <p style={{ marginBottom: 16, color: "#444" }}>
         Session progress: {sessionCount} / {MAX_QUESTIONS}
