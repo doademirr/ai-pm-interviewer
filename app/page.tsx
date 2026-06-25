@@ -512,21 +512,16 @@ export default function Home() {
   }
 
   function handleNextQuestion() {
-    if (sessionDone) return;
+    // Only callable when there is a staged answer to commit.
+    if (sessionDone || !pendingEntry) return;
 
-    // Commit the pending entry now that the user has accepted this answer.
     const newCount = sessionCount + 1;
-    const newUsedIds = pendingEntry
-      ? [...usedQuestionIds, pendingEntry.questionId]
-      : usedQuestionIds;
+    const newUsedIds = [...usedQuestionIds, pendingEntry.questionId];
 
-    if (pendingEntry) {
-      setSessionEvaluations((prev) => [...prev, pendingEntry]);
-      setSessionCount(newCount);
-      setUsedQuestionIds(newUsedIds);
-      setPendingEntry(null);
-    }
-
+    setSessionEvaluations((prev) => [...prev, pendingEntry]);
+    setSessionCount(newCount);
+    setUsedQuestionIds(newUsedIds);
+    setPendingEntry(null);
     setEvaluation(null);
     setError(null);
     setAnswer("");
@@ -535,12 +530,19 @@ export default function Home() {
       const next = pickRandomQuestion({ type: selectedType, difficulty: selectedDifficulty, usedIds: newUsedIds });
       setCurrentQuestion(next);
     }
-    // else: newCount === MAX_QUESTIONS → sessionDone becomes true on next render → teacher mode
+    // else: sessionDone becomes true on next render → teacher mode
   }
 
+  // Skip replaces the current question without counting it toward the session.
+  // Only reachable on evaluation error — skipped questions don't advance sessionCount.
   function handleSkipQuestion() {
     if (sessionDone) return;
-    handleNextQuestion();
+    const next = pickRandomQuestion({ type: selectedType, difficulty: selectedDifficulty, usedIds: usedQuestionIds });
+    setCurrentQuestion(next);
+    setEvaluation(null);
+    setPendingEntry(null);
+    setError(null);
+    setAnswer("");
   }
 
   async function handleGenerateTeacher() {
