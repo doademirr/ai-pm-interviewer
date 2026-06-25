@@ -29,12 +29,21 @@ A web app that simulates a real PM interview: realistic questions → structured
 
 ---
 
-## Coming up (not in priority order)
+## Phase 3 — Spy Agent + UI polish (done)
 
-- Dynamic score rows rendered per question in the session view (currently raw JSON)
-- Spy agent: researches company culture before the session, activates the culture_fit dimension in general personal questions
-- Re-enable general personal questions (currently parked — spy agent dependency)
-- Upload company name and job description to personalise interviews
-- AI to create its own questions, rather than purely relying on a question bank
-- Real-time AI-generated follow-up questions
-- Voice-based answering to simulate live interviews
+- Spy agent: agentic loop (web_search + web_fetch) researches company culture before the session
+- Culture-fit scoring activated in general personal questions when spy agent finds sufficient evidence
+- General personal questions re-enabled (were parked pending spy agent)
+- Structured evaluation UI: verdict badge, per-dimension score rows, strengths/gaps, collapsible example answer, bonus signal callout
+- Structured AI Teacher UI: summary, recurring gaps, concepts to study, practice drills, weekly plan, encouragement
+- Start new session without browser refresh
+- 16 Vitest tests covering spy agent normalisation and route behaviour
+
+---
+
+## Possible next phases (not prioritised)
+
+- JD upload: paste a job description to personalise question selection and Teacher feedback
+- AI-generated questions: model creates questions from scratch rather than drawing from a fixed bank
+- Real-time follow-up questions: model asks a follow-up based on the answer just given
+- Voice mode: speak answers to simulate a live interview
