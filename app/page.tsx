@@ -60,6 +60,10 @@ type SessionEntry = {
   evaluation: EvalResult;
 };
 
+// Evaluated but not yet committed to the session (committed on Next question, not on Submit).
+// Keeps Try again from corrupting sessionEvaluations / sessionCount.
+type PendingEntry = SessionEntry;
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function pickRandomQuestion(params: {
@@ -92,11 +96,12 @@ const VERDICT_CONFIG = {
 } as const;
 
 function ScoreDots({ score }: { score: number }) {
-  const filled = Math.round(Math.max(0, Math.min(5, score)));
+  // Round so dots and label always agree — evaluator occasionally returns decimals.
+  const rounded = Math.round(Math.max(0, Math.min(5, score)));
   return (
     <span style={{ letterSpacing: 2, fontSize: 14 }}>
-      <span style={{ color: "#111" }}>{"●".repeat(filled)}</span>
-      <span style={{ color: "#ddd" }}>{"●".repeat(5 - filled)}</span>
+      <span style={{ color: "#111" }}>{"●".repeat(rounded)}</span>
+      <span style={{ color: "#ddd" }}>{"●".repeat(5 - rounded)}</span>
     </span>
   );
 }
@@ -131,10 +136,10 @@ function EvaluationCard({ ev }: { ev: EvalResult }) {
             SCORES
           </div>
           {scoreEntries.map(([dim, score]) => (
-            <div key={dim} style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 5 }}>
-              <span style={{ minWidth: 200, fontSize: 13, color: "#333" }}>{toTitleCase(dim)}</span>
+            <div key={dim} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5 }}>
+              <span style={{ flex: 1, minWidth: 0, fontSize: 13, color: "#333" }}>{toTitleCase(dim)}</span>
               <ScoreDots score={score} />
-              <span style={{ fontSize: 13, color: "#888" }}>{score}/5</span>
+              <span style={{ fontSize: 13, color: "#888", whiteSpace: "nowrap" }}>{Math.round(score)}/5</span>
             </div>
           ))}
         </div>
@@ -145,11 +150,11 @@ function EvaluationCard({ ev }: { ev: EvalResult }) {
         <div style={{
           padding: "12px 16px",
           borderBottom: "1px solid #eee",
-          display: "grid",
-          gridTemplateColumns: "1fr 1fr",
+          display: "flex",
+          flexWrap: "wrap",
           gap: 16,
         }}>
-          <div>
+          <div style={{ flex: "1 1 180px" }}>
             <div style={{ fontSize: 11, fontWeight: 700, color: "#166534", letterSpacing: 1, marginBottom: 6 }}>
               STRENGTHS
             </div>
@@ -159,7 +164,7 @@ function EvaluationCard({ ev }: { ev: EvalResult }) {
               ))}
             </ul>
           </div>
-          <div>
+          <div style={{ flex: "1 1 180px" }}>
             <div style={{ fontSize: 11, fontWeight: 700, color: "#991b1b", letterSpacing: 1, marginBottom: 6 }}>
               GAPS
             </div>
@@ -390,6 +395,9 @@ export default function Home() {
   const [sessionCount, setSessionCount] = useState(0);
   const [usedQuestionIds, setUsedQuestionIds] = useState<string[]>([]);
   const [sessionEvaluations, setSessionEvaluations] = useState<SessionEntry[]>([]);
+  // pendingEntry holds the evaluated answer until the user clicks Next question.
+  // Nothing is committed to sessionEvaluations until then, so Try again is always safe.
+  const [pendingEntry, setPendingEntry] = useState<PendingEntry | null>(null);
 
   // spy agent state
   const [companyName, setCompanyName] = useState("");
@@ -479,18 +487,16 @@ export default function Home() {
 
       const data: EvalResult = await res.json();
       setEvaluation(data);
-      setSessionEvaluations((prev) => [
-        ...prev,
-        {
-          questionId: currentQuestion.id,
-          question: currentQuestion.question,
-          answer,
-          wordCount,
-          evaluation: data,
-        },
-      ]);
-      setSessionCount((c) => c + 1);
-      setUsedQuestionIds((ids) => [...ids, currentQuestion.id]);
+      // Stage but don't commit yet — session entry is committed in handleNextQuestion.
+      // This keeps Try again safe: clearing evaluation discards pendingEntry without
+      // corrupting sessionEvaluations or sessionCount.
+      setPendingEntry({
+        questionId: currentQuestion.id,
+        question: currentQuestion.question,
+        answer,
+        wordCount,
+        evaluation: data,
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
     } finally {
@@ -500,21 +506,36 @@ export default function Home() {
 
   function handleTryAgain() {
     setEvaluation(null);
+    setPendingEntry(null);
     setError(null);
     setAnswer("");
   }
 
   function handleNextQuestion() {
     if (sessionDone) return;
-    const next = pickRandomQuestion({
-      type: selectedType,
-      difficulty: selectedDifficulty,
-      usedIds: usedQuestionIds,
-    });
-    setCurrentQuestion(next);
+
+    // Commit the pending entry now that the user has accepted this answer.
+    const newCount = sessionCount + 1;
+    const newUsedIds = pendingEntry
+      ? [...usedQuestionIds, pendingEntry.questionId]
+      : usedQuestionIds;
+
+    if (pendingEntry) {
+      setSessionEvaluations((prev) => [...prev, pendingEntry]);
+      setSessionCount(newCount);
+      setUsedQuestionIds(newUsedIds);
+      setPendingEntry(null);
+    }
+
     setEvaluation(null);
     setError(null);
     setAnswer("");
+
+    if (newCount < MAX_QUESTIONS) {
+      const next = pickRandomQuestion({ type: selectedType, difficulty: selectedDifficulty, usedIds: newUsedIds });
+      setCurrentQuestion(next);
+    }
+    // else: newCount === MAX_QUESTIONS → sessionDone becomes true on next render → teacher mode
   }
 
   function handleSkipQuestion() {
@@ -548,6 +569,7 @@ export default function Home() {
     setSessionCount(0);
     setUsedQuestionIds([]);
     setSessionEvaluations([]);
+    setPendingEntry(null);
     setTeacher(null);
     setTeacherLoading(false);
     setTeacherError(null);
@@ -656,23 +678,40 @@ export default function Home() {
         </p>
 
         {!teacher && (
-          <button
-            type="button"
-            onClick={handleGenerateTeacher}
-            disabled={teacherLoading || sessionEvaluations.length === 0}
-            style={{
-              padding: "10px 14px",
-              borderRadius: 8,
-              border: "1px solid #111",
-              background: "#111",
-              color: "white",
-              fontWeight: 600,
-              cursor: "pointer",
-              opacity: teacherLoading ? 0.7 : 1,
-            }}
-          >
-            {teacherLoading ? "Generating…" : "Generate Teacher Feedback"}
-          </button>
+          <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+            <button
+              type="button"
+              onClick={handleGenerateTeacher}
+              disabled={teacherLoading || sessionEvaluations.length === 0}
+              style={{
+                padding: "10px 14px",
+                borderRadius: 8,
+                border: "1px solid #111",
+                background: "#111",
+                color: "white",
+                fontWeight: 600,
+                cursor: "pointer",
+                opacity: teacherLoading ? 0.7 : 1,
+              }}
+            >
+              {teacherLoading ? "Generating…" : "Generate Teacher Feedback"}
+            </button>
+            <button
+              type="button"
+              onClick={handleReset}
+              style={{
+                padding: "10px 14px",
+                borderRadius: 8,
+                border: "1px solid #ddd",
+                background: "white",
+                color: "#333",
+                fontWeight: 600,
+                cursor: "pointer",
+              }}
+            >
+              Start new session
+            </button>
+          </div>
         )}
 
         {teacherError && (
@@ -727,7 +766,7 @@ export default function Home() {
 
         <button
           type="submit"
-          disabled={loading || !currentQuestion}
+          disabled={loading || !currentQuestion || !!evaluation}
           style={{
             marginTop: 12,
             padding: "10px 14px",
@@ -737,7 +776,7 @@ export default function Home() {
             color: "white",
             fontWeight: 600,
             cursor: "pointer",
-            opacity: loading ? 0.7 : 1,
+            opacity: loading || !!evaluation ? 0.7 : 1,
           }}
         >
           {loading ? "Evaluating…" : "Submit Answer"}
