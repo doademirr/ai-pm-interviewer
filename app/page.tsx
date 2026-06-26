@@ -473,7 +473,15 @@ export default function Home() {
     setSessionPrepared(false);
     setSessionQuestions([]);
     setSessionQuestionIndex(0);
-  }, [jd]);
+    // Clear the in-flight loading state so the Prepare button unblocks immediately.
+    // The stale run will return early without touching preparingSession, so this
+    // must be cleared here rather than in the stale run's return path.
+    setPreparingSession(false);
+    // Ensure a bank question is shown if auto-prepare hadn't committed one yet.
+    setCurrentQuestion((prev) =>
+      prev ?? pickRandomQuestion({ type: selectedType, difficulty: selectedDifficulty, usedIds: [] })
+    );
+  }, [jd, selectedType, selectedDifficulty]);
 
   // ── Session helpers ───────────────────────────────────────────────────────
 
