@@ -9,12 +9,17 @@ import {
 import { GENERAL_PERSONAL_QUESTIONS } from "./data/generalPersonalQuestions";
 import type { CultureProfile } from "./api/spy/schema";
 
-// general_personal questions are re-enabled now that the spy agent can activate culture_fit.
 const QUESTIONS: Question[] = [...QUESTION_BANK, ...GENERAL_PERSONAL_QUESTIONS];
 
 type QuestionTypeOption = "random" | QuestionType;
 
-// ─── Types (mirroring server-side schemas) ────────────────────────────────────
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+type FollowUpSignal = {
+  warranted: boolean;
+  reason: "promising_but_shallow" | "interesting_thread" | "gap_to_probe";
+  target_gap: string;
+};
 
 type EvalResult = {
   interview_verdict: "hire" | "borderline" | "no_hire";
@@ -28,6 +33,7 @@ type EvalResult = {
   decision_rationale: string;
   bonus_signal: boolean;
   bonus_description: string;
+  follow_up: FollowUpSignal;
 };
 
 type TeacherResult = {
@@ -52,16 +58,22 @@ type TeacherResult = {
   encouragement: string;
 };
 
+type FollowUpEntry = {
+  question: string;
+  answer: string;
+  feedback: string;
+  addressed_gap: boolean;
+};
+
 type SessionEntry = {
   questionId: string;
   question: string;
   answer: string;
   wordCount: number;
   evaluation: EvalResult;
+  followUp?: FollowUpEntry;
 };
 
-// Evaluated but not yet committed to the session (committed on Next question, not on Submit).
-// Keeps Try again from corrupting sessionEvaluations / sessionCount.
 type PendingEntry = SessionEntry;
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -70,9 +82,10 @@ function pickRandomQuestion(params: {
   type: QuestionTypeOption;
   difficulty?: 1 | 2 | 3;
   usedIds: string[];
+  extraQuestions?: Question[];
 }): Question | null {
-  const { type, difficulty, usedIds } = params;
-  let pool = QUESTIONS.filter((q) => !usedIds.includes(q.id));
+  const { type, difficulty, usedIds, extraQuestions = [] } = params;
+  let pool = [...QUESTIONS, ...extraQuestions].filter((q) => !usedIds.includes(q.id));
   if (type !== "random") pool = pool.filter((q) => q.type === type);
   if (difficulty) pool = pool.filter((q) => q.difficulty === difficulty);
   if (pool.length === 0) return null;
@@ -96,7 +109,6 @@ const VERDICT_CONFIG = {
 } as const;
 
 function ScoreDots({ score }: { score: number }) {
-  // Round so dots and label always agree — evaluator occasionally returns decimals.
   const rounded = Math.round(Math.max(0, Math.min(5, score)));
   return (
     <span style={{ letterSpacing: 2, fontSize: 14 }}>
@@ -243,7 +255,6 @@ function TeacherCard({ teacher, onReset }: { teacher: TeacherResult; onReset: ()
   return (
     <div style={{ marginTop: 16 }}>
 
-      {/* Summary */}
       {teacher.summary && (
         <div style={{
           padding: 16,
@@ -256,7 +267,6 @@ function TeacherCard({ teacher, onReset }: { teacher: TeacherResult; onReset: ()
         </div>
       )}
 
-      {/* Recurring gaps */}
       {teacher.recurring_gaps.length > 0 && (
         <div style={{ marginBottom: 20 }}>
           <h3 style={{ fontSize: 14, fontWeight: 700, margin: "0 0 8px", color: "#111" }}>Recurring Gaps</h3>
@@ -268,7 +278,6 @@ function TeacherCard({ teacher, onReset }: { teacher: TeacherResult; onReset: ()
         </div>
       )}
 
-      {/* Theory gaps */}
       {teacher.theory_gaps.length > 0 && (
         <div style={{ marginBottom: 20 }}>
           <h3 style={{ fontSize: 14, fontWeight: 700, margin: "0 0 10px", color: "#111" }}>Concepts to Study</h3>
@@ -299,7 +308,6 @@ function TeacherCard({ teacher, onReset }: { teacher: TeacherResult; onReset: ()
         </div>
       )}
 
-      {/* Drills */}
       {teacher.drills.length > 0 && (
         <div style={{ marginBottom: 20 }}>
           <h3 style={{ fontSize: 14, fontWeight: 700, margin: "0 0 10px", color: "#111" }}>Practice Drills</h3>
@@ -331,7 +339,6 @@ function TeacherCard({ teacher, onReset }: { teacher: TeacherResult; onReset: ()
         </div>
       )}
 
-      {/* Weekly plan */}
       {teacher.weekly_plan.length > 0 && (
         <div style={{ marginBottom: 20 }}>
           <h3 style={{ fontSize: 14, fontWeight: 700, margin: "0 0 10px", color: "#111" }}>Weekly Plan</h3>
@@ -348,7 +355,6 @@ function TeacherCard({ teacher, onReset }: { teacher: TeacherResult; onReset: ()
         </div>
       )}
 
-      {/* Encouragement */}
       {teacher.encouragement && (
         <div style={{
           padding: 16,
@@ -387,6 +393,7 @@ function TeacherCard({ teacher, onReset }: { teacher: TeacherResult; onReset: ()
 
 export default function Home() {
   const MAX_QUESTIONS = 5;
+  const MAX_FOLLOW_UPS = 2;
 
   const [selectedType] = useState<QuestionTypeOption>("random");
   const [selectedDifficulty] = useState<1 | 2 | 3 | undefined>(undefined);
@@ -395,8 +402,6 @@ export default function Home() {
   const [sessionCount, setSessionCount] = useState(0);
   const [usedQuestionIds, setUsedQuestionIds] = useState<string[]>([]);
   const [sessionEvaluations, setSessionEvaluations] = useState<SessionEntry[]>([]);
-  // pendingEntry holds the evaluated answer until the user clicks Next question.
-  // Nothing is committed to sessionEvaluations until then, so Try again is always safe.
   const [pendingEntry, setPendingEntry] = useState<PendingEntry | null>(null);
 
   // spy agent state
@@ -405,22 +410,35 @@ export default function Home() {
   const [spyLoading, setSpyLoading] = useState(false);
   const [spyError, setSpyError] = useState<string | null>(null);
 
+  // JD + question generation state
+  const [jd, setJd] = useState("");
+  const [generatedQuestions, setGeneratedQuestions] = useState<Question[]>([]);
+  const [sessionPrepared, setSessionPrepared] = useState(false);
+  const [preparingSession, setPreparingSession] = useState(false);
+
   // teacher state
   const [teacher, setTeacher] = useState<TeacherResult | null>(null);
   const [teacherLoading, setTeacherLoading] = useState(false);
   const [teacherError, setTeacherError] = useState<string | null>(null);
 
   // current Q/A state
-  // IMPORTANT: start as null to avoid Math.random during SSR snapshot
   const [currentQuestion, setCurrentQuestion] = useState<Question | null>(null);
   const [answer, setAnswer] = useState("");
   const [evaluation, setEvaluation] = useState<EvalResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // follow-up state
+  const [followUpCount, setFollowUpCount] = useState(0);
+  const [pendingFollowUp, setPendingFollowUp] = useState<{ question: string; targetGap: string } | null>(null);
+  const [followUpAnswer, setFollowUpAnswer] = useState("");
+  const [followUpFeedback, setFollowUpFeedback] = useState<{ feedback: string; addressed_gap: boolean } | null>(null);
+  const [followUpLoading, setFollowUpLoading] = useState(false);
+  const [followUpSubmitted, setFollowUpSubmitted] = useState(false);
+  const [followUpError, setFollowUpError] = useState<string | null>(null);
+
   const sessionDone = sessionCount >= MAX_QUESTIONS;
 
-  // Pick initial question AFTER mount (prevents hydration mismatch)
   useEffect(() => {
     if (!currentQuestion) {
       const first = pickRandomQuestion({
@@ -456,6 +474,55 @@ export default function Home() {
     }
   }
 
+  async function handlePrepareSession() {
+    setPreparingSession(true);
+
+    let generated: Question[] = [];
+    try {
+      const hasJd = jd.trim().length > 0;
+      const mode = hasJd ? "jd" : "gap_fill";
+      const count = hasJd ? 3 : 2;
+
+      const bankExamples = hasJd
+        ? QUESTIONS.filter((q) => q.type === "technical_product_sense").slice(0, 4)
+        : [
+            ...QUESTIONS.filter((q) => q.type === "estimation").slice(0, 2),
+            ...QUESTIONS.filter((q) => q.type === "technical_product_sense").slice(0, 2),
+          ];
+
+      const body: Record<string, unknown> = { mode, count, examples: bankExamples };
+      if (hasJd) body.jd = jd.trim();
+      else body.categories = ["estimation", "technical_product_sense"];
+
+      const res = await fetch("/api/questions/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+
+      if (res.ok) {
+        const data: Question[] = await res.json();
+        generated = Array.isArray(data) ? data : [];
+      }
+      // Fall back silently if generation fails
+    } catch {
+      // Fall back silently — session still starts with bank questions
+    }
+
+    setGeneratedQuestions(generated);
+    setSessionPrepared(true);
+
+    // Replace first question with one from the prepared pool
+    const first = pickRandomQuestion({
+      type: selectedType,
+      difficulty: selectedDifficulty,
+      usedIds: [],
+      extraQuestions: generated,
+    });
+    setCurrentQuestion(first);
+    setPreparingSession(false);
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!currentQuestion) return;
@@ -463,20 +530,24 @@ export default function Home() {
     setLoading(true);
     setError(null);
 
+    // Capture snapshots before any async state updates
+    const snapshotAnswer = answer;
+    const snapshotQuestion = currentQuestion;
+
     try {
-      const wordCount = answer.trim().split(/\s+/).filter(Boolean).length;
+      const wordCount = snapshotAnswer.trim().split(/\s+/).filter(Boolean).length;
 
       const res = await fetch("/api/evaluate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          question: currentQuestion.question,
-          answer,
+          question: snapshotQuestion.question,
+          answer: snapshotAnswer,
           wordCount,
-          questionType: currentQuestion.type,
-          mustCover: currentQuestion.mustCover ?? [],
-          // Passed for every question; the evaluator only uses it for general_personal.
+          questionType: snapshotQuestion.type,
+          mustCover: snapshotQuestion.mustCover ?? [],
           cultureProfile,
+          jd: jd.trim() || undefined,
         }),
       });
 
@@ -487,16 +558,45 @@ export default function Home() {
 
       const data: EvalResult = await res.json();
       setEvaluation(data);
-      // Stage but don't commit yet — session entry is committed in handleNextQuestion.
-      // This keeps Try again safe: clearing evaluation discards pendingEntry without
-      // corrupting sessionEvaluations or sessionCount.
       setPendingEntry({
-        questionId: currentQuestion.id,
-        question: currentQuestion.question,
-        answer,
+        questionId: snapshotQuestion.id,
+        question: snapshotQuestion.question,
+        answer: snapshotAnswer,
         wordCount,
         evaluation: data,
       });
+
+      // If follow-up is warranted and under cap, generate in background
+      if (data.follow_up?.warranted && followUpCount < MAX_FOLLOW_UPS) {
+        setFollowUpLoading(true);
+        fetch("/api/questions/followup", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            originalQuestion: snapshotQuestion.question,
+            answer: snapshotAnswer,
+            targetGap: data.follow_up.target_gap,
+            reason: data.follow_up.reason,
+          }),
+        })
+          .then(async (fuRes) => {
+            if (fuRes.ok) {
+              const fuData: { question: string } = await fuRes.json();
+              if (fuData.question) {
+                setPendingFollowUp({
+                  question: fuData.question,
+                  targetGap: data.follow_up.target_gap,
+                });
+              }
+            }
+          })
+          .catch(() => {
+            // Fail silently — follow-up is optional
+          })
+          .finally(() => {
+            setFollowUpLoading(false);
+          });
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
     } finally {
@@ -504,15 +604,74 @@ export default function Home() {
     }
   }
 
+  async function handleSubmitFollowUp() {
+    if (!pendingFollowUp || !evaluation || !currentQuestion || !followUpAnswer.trim()) return;
+
+    setFollowUpLoading(true);
+    setFollowUpError(null);
+
+    try {
+      const res = await fetch("/api/questions/followup-feedback", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          originalQuestion: currentQuestion.question,
+          originalAnswer: answer,
+          evaluation,
+          followUpQuestion: pendingFollowUp.question,
+          followUpAnswer,
+        }),
+      });
+
+      if (!res.ok) throw new Error("Follow-up feedback failed");
+
+      const data: { feedback: string; addressed_gap: boolean } = await res.json();
+      setFollowUpFeedback(data);
+      setFollowUpSubmitted(true);
+      setFollowUpCount((c) => c + 1);
+
+      // Attach follow-up to pending entry so Teacher sees it
+      setPendingEntry((prev) =>
+        prev
+          ? {
+              ...prev,
+              followUp: {
+                question: pendingFollowUp.question,
+                answer: followUpAnswer,
+                feedback: data.feedback,
+                addressed_gap: data.addressed_gap,
+              },
+            }
+          : prev
+      );
+    } catch (err) {
+      setFollowUpError(err instanceof Error ? err.message : "Follow-up feedback failed");
+    } finally {
+      setFollowUpLoading(false);
+    }
+  }
+
+  function handleSkipFollowUp() {
+    setPendingFollowUp(null);
+    setFollowUpAnswer("");
+    setFollowUpFeedback(null);
+    setFollowUpSubmitted(false);
+    setFollowUpError(null);
+  }
+
   function handleTryAgain() {
     setEvaluation(null);
     setPendingEntry(null);
     setError(null);
     setAnswer("");
+    setPendingFollowUp(null);
+    setFollowUpAnswer("");
+    setFollowUpFeedback(null);
+    setFollowUpSubmitted(false);
+    setFollowUpError(null);
   }
 
   function handleNextQuestion() {
-    // Only callable when there is a staged answer to commit.
     if (sessionDone || !pendingEntry) return;
 
     const newCount = sessionCount + 1;
@@ -526,23 +685,42 @@ export default function Home() {
     setError(null);
     setAnswer("");
 
+    // Reset follow-up state for next question
+    setPendingFollowUp(null);
+    setFollowUpAnswer("");
+    setFollowUpFeedback(null);
+    setFollowUpSubmitted(false);
+    setFollowUpError(null);
+
     if (newCount < MAX_QUESTIONS) {
-      const next = pickRandomQuestion({ type: selectedType, difficulty: selectedDifficulty, usedIds: newUsedIds });
+      const next = pickRandomQuestion({
+        type: selectedType,
+        difficulty: selectedDifficulty,
+        usedIds: newUsedIds,
+        extraQuestions: generatedQuestions,
+      });
       setCurrentQuestion(next);
     }
-    // else: sessionDone becomes true on next render → teacher mode
   }
 
-  // Skip replaces the current question without counting it toward the session.
-  // Only reachable on evaluation error — skipped questions don't advance sessionCount.
   function handleSkipQuestion() {
     if (sessionDone) return;
-    const next = pickRandomQuestion({ type: selectedType, difficulty: selectedDifficulty, usedIds: usedQuestionIds });
+    const next = pickRandomQuestion({
+      type: selectedType,
+      difficulty: selectedDifficulty,
+      usedIds: usedQuestionIds,
+      extraQuestions: generatedQuestions,
+    });
     setCurrentQuestion(next);
     setEvaluation(null);
     setPendingEntry(null);
     setError(null);
     setAnswer("");
+    setPendingFollowUp(null);
+    setFollowUpAnswer("");
+    setFollowUpFeedback(null);
+    setFollowUpSubmitted(false);
+    setFollowUpError(null);
   }
 
   async function handleGenerateTeacher() {
@@ -552,7 +730,10 @@ export default function Home() {
       const res = await fetch("/api/teacher", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionEvaluations }),
+        body: JSON.stringify({
+          sessionEvaluations,
+          jd: jd.trim() || undefined,
+        }),
       });
       if (!res.ok) {
         const errText = await res.text();
@@ -579,7 +760,17 @@ export default function Home() {
     setEvaluation(null);
     setLoading(false);
     setError(null);
-    // Pick a fresh first question directly (useEffect only runs on mount)
+    setFollowUpCount(0);
+    setPendingFollowUp(null);
+    setFollowUpAnswer("");
+    setFollowUpFeedback(null);
+    setFollowUpSubmitted(false);
+    setFollowUpError(null);
+    setFollowUpLoading(false);
+    setGeneratedQuestions([]);
+    setSessionPrepared(false);
+    setPreparingSession(false);
+
     const first = pickRandomQuestion({ type: selectedType, difficulty: selectedDifficulty, usedIds: [] });
     setCurrentQuestion(first);
   }
@@ -587,6 +778,8 @@ export default function Home() {
   // ── Company Intelligence panel ──────────────────────────────────────────────
   function CompanyPanel() {
     const active = cultureFitActive(cultureProfile);
+    const sessionStarted = sessionCount > 0 || !!pendingEntry;
+
     return (
       <div style={{ padding: 16, border: "1px solid #ddd", borderRadius: 8, marginBottom: 16 }}>
         <h2 style={{ fontSize: 18, fontWeight: 600, marginBottom: 8 }}>
@@ -594,8 +787,10 @@ export default function Home() {
           <span style={{ fontWeight: 400, fontSize: 13, color: "#666" }}>(optional)</span>
         </h2>
         <p style={{ fontSize: 13, color: "#666", marginBottom: 8 }}>
-          Research a company to turn on culture-fit scoring and see what to expect.
+          Research a company to turn on culture-fit scoring. Paste a job description to get tailored questions.
         </p>
+
+        {/* Company research */}
         <div style={{ display: "flex", gap: 8 }}>
           <input
             value={companyName}
@@ -661,11 +856,69 @@ export default function Home() {
             </div>
           </div>
         )}
+
+        {/* JD input */}
+        <div style={{ marginTop: 14 }}>
+          <label style={{ fontSize: 13, fontWeight: 600, color: "#333", display: "block", marginBottom: 4 }}>
+            Job description{" "}
+            <span style={{ fontWeight: 400, color: "#666" }}>(optional)</span>
+          </label>
+          <textarea
+            value={jd}
+            onChange={(e) => setJd(e.target.value)}
+            placeholder="Paste the job description to get tailored interview questions…"
+            rows={4}
+            disabled={sessionStarted}
+            style={{
+              width: "100%",
+              padding: 10,
+              borderRadius: 8,
+              border: "1px solid #ddd",
+              fontSize: 13,
+              resize: "vertical",
+              opacity: sessionStarted ? 0.5 : 1,
+              boxSizing: "border-box",
+            }}
+          />
+        </div>
+
+        {/* Prepare session button */}
+        {jd.trim() && !sessionStarted && (
+          <div style={{ marginTop: 8 }}>
+            <button
+              type="button"
+              onClick={handlePrepareSession}
+              disabled={preparingSession}
+              style={{
+                padding: "8px 14px",
+                borderRadius: 8,
+                border: "1px solid #2563eb",
+                background: sessionPrepared ? "#f0fdf4" : "#2563eb",
+                color: sessionPrepared ? "#166534" : "white",
+                fontWeight: 600,
+                cursor: preparingSession ? "default" : "pointer",
+                fontSize: 13,
+                opacity: preparingSession ? 0.7 : 1,
+              }}
+            >
+              {preparingSession
+                ? "Preparing session…"
+                : sessionPrepared
+                ? "✓ Session prepared"
+                : "Prepare session"}
+            </button>
+            {sessionPrepared && generatedQuestions.length > 0 && (
+              <span style={{ marginLeft: 10, fontSize: 12, color: "#666" }}>
+                {generatedQuestions.length} tailored question{generatedQuestions.length !== 1 ? "s" : ""} added
+              </span>
+            )}
+          </div>
+        )}
       </div>
     );
   }
 
-  // ── Teacher mode (after 5 questions) ───────────────────────────────────────
+  // ── Teacher mode ─────────────────────────────────────────────────────────────
   if (sessionDone) {
     return (
       <main style={{ maxWidth: 800, margin: "40px auto", padding: 16 }}>
@@ -725,7 +978,7 @@ export default function Home() {
     );
   }
 
-  // ── Normal mode (questions) ─────────────────────────────────────────────────
+  // ── Normal mode ──────────────────────────────────────────────────────────────
   return (
     <main style={{ maxWidth: 800, margin: "40px auto", padding: 16 }}>
       <h1 style={{ fontSize: 28, fontWeight: 700, marginBottom: 8 }}>
@@ -736,6 +989,11 @@ export default function Home() {
 
       <p style={{ marginBottom: 16, color: "#444" }}>
         Session progress: {sessionCount} / {MAX_QUESTIONS}
+        {followUpCount > 0 && (
+          <span style={{ fontSize: 13, color: "#666" }}>
+            {" "}· {followUpCount} follow-up{followUpCount !== 1 ? "s" : ""} asked
+          </span>
+        )}
         <br />
         <span style={{ fontSize: 13 }}>
           Imagine a specific company + role you&apos;re applying for. Answer with that context in mind.
@@ -763,6 +1021,7 @@ export default function Home() {
             borderRadius: 8,
             border: "1px solid #ddd",
             fontSize: 14,
+            boxSizing: "border-box",
           }}
         />
 
@@ -797,15 +1056,18 @@ export default function Home() {
           </div>
         )}
 
+        {/* Action buttons — shown after evaluation */}
         {evaluation && (
           <div style={{ marginTop: 12, display: "flex", gap: 12 }}>
-            <button
-              type="button"
-              onClick={handleTryAgain}
-              style={{ padding: "10px 14px", borderRadius: 8 }}
-            >
-              Try again
-            </button>
+            {!pendingFollowUp && !followUpLoading && !followUpSubmitted && (
+              <button
+                type="button"
+                onClick={handleTryAgain}
+                style={{ padding: "10px 14px", borderRadius: 8, border: "1px solid #ddd" }}
+              >
+                Try again
+              </button>
+            )}
             <button
               type="button"
               onClick={handleNextQuestion}
@@ -824,6 +1086,108 @@ export default function Home() {
         )}
 
         {evaluation && <EvaluationCard ev={evaluation} />}
+
+        {/* Follow-up question — appears automatically if warranted */}
+        {evaluation && (pendingFollowUp || followUpLoading) && !followUpSubmitted && (
+          <div style={{ marginTop: 20, border: "1px solid #e5e7eb", borderRadius: 8, overflow: "hidden" }}>
+            <div style={{ padding: "10px 14px", background: "#f8fafc", borderBottom: "1px solid #e5e7eb" }}>
+              <span style={{ fontSize: 11, fontWeight: 700, color: "#475569", letterSpacing: 1 }}>
+                INTERVIEWER FOLLOW-UP
+              </span>
+            </div>
+
+            {followUpLoading && !pendingFollowUp ? (
+              <div style={{ padding: "14px", fontSize: 13, color: "#666" }}>
+                Generating follow-up question…
+              </div>
+            ) : pendingFollowUp ? (
+              <div>
+                <p style={{ padding: "14px 14px 0", margin: 0, fontSize: 14, lineHeight: 1.6, color: "#111", fontWeight: 500 }}>
+                  {pendingFollowUp.question}
+                </p>
+                <div style={{ padding: "12px 14px 14px" }}>
+                  <textarea
+                    value={followUpAnswer}
+                    onChange={(e) => setFollowUpAnswer(e.target.value)}
+                    rows={5}
+                    placeholder="Answer the follow-up question…"
+                    style={{
+                      width: "100%",
+                      padding: 10,
+                      borderRadius: 8,
+                      border: "1px solid #ddd",
+                      fontSize: 13,
+                      boxSizing: "border-box",
+                    }}
+                  />
+                  <div style={{ marginTop: 8, display: "flex", gap: 8 }}>
+                    <button
+                      type="button"
+                      onClick={handleSubmitFollowUp}
+                      disabled={followUpLoading || !followUpAnswer.trim()}
+                      style={{
+                        padding: "8px 14px",
+                        borderRadius: 8,
+                        border: "1px solid #111",
+                        background: "#111",
+                        color: "white",
+                        fontWeight: 600,
+                        cursor: "pointer",
+                        fontSize: 13,
+                        opacity: followUpLoading || !followUpAnswer.trim() ? 0.6 : 1,
+                      }}
+                    >
+                      {followUpLoading ? "Evaluating…" : "Submit follow-up"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleSkipFollowUp}
+                      style={{
+                        padding: "8px 14px",
+                        borderRadius: 8,
+                        border: "1px solid #ddd",
+                        background: "white",
+                        color: "#666",
+                        fontSize: 13,
+                        cursor: "pointer",
+                      }}
+                    >
+                      Skip follow-up
+                    </button>
+                  </div>
+                  {followUpError && (
+                    <p style={{ marginTop: 6, fontSize: 12, color: "crimson" }}>{followUpError}</p>
+                  )}
+                </div>
+              </div>
+            ) : null}
+          </div>
+        )}
+
+        {/* Follow-up feedback */}
+        {evaluation && followUpSubmitted && followUpFeedback && (
+          <div style={{
+            marginTop: 16,
+            padding: "12px 14px",
+            border: "1px solid #e5e7eb",
+            borderRadius: 8,
+            background: "#f8fafc",
+          }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: "#475569", letterSpacing: 1, marginBottom: 8 }}>
+              FOLLOW-UP FEEDBACK
+            </div>
+            <p style={{ margin: 0, fontSize: 13, lineHeight: 1.6, color: "#333" }}>
+              {followUpFeedback.feedback}
+            </p>
+            <p style={{
+              margin: "8px 0 0",
+              fontSize: 12,
+              color: followUpFeedback.addressed_gap ? "#166534" : "#991b1b",
+            }}>
+              {followUpFeedback.addressed_gap ? "✓ Gap addressed" : "Gap still present"}
+            </p>
+          </div>
+        )}
       </form>
     </main>
   );
