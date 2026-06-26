@@ -9,10 +9,12 @@ Built as a portfolio piece — the goal was to practice building AI products, no
 ## What it does
 
 **Per-session loop:**
-1. Enter a target company (optional) — the spy agent researches it before you start
-2. Answer 5 interview questions drawn from a question bank across 6 categories
-3. Each answer is evaluated instantly: verdict, dimension scores, strengths/gaps, feedback, example better answer
-4. After 5 questions, an AI Teacher synthesises your session into a personalised coaching plan
+1. Paste a job description (optional) — questions are tailored to the role; otherwise the session targets thin categories
+2. Enter a target company (optional) — the spy agent researches it before you start
+3. Answer 5 interview questions; 2–3 are AI-generated for the session, the rest drawn from the question bank
+4. Each answer is evaluated instantly: verdict, dimension scores, strengths/gaps, feedback, example better answer
+5. For borderline answers, a follow-up question appears automatically — the AI presses further on the gap it found
+6. After 5 questions, an AI Teacher synthesises your session into a personalised coaching plan
 
 ---
 
@@ -33,6 +35,16 @@ A thin router reads `questionType` from the question bank and delegates to a per
 
 Verdict thresholds differ by category (4-dimension categories use a recalibrated scale to avoid penalising for fewer dimensions).
 
+### JD upload and AI-generated questions
+
+Paste a job description before the session. Claude Sonnet generates 2–3 questions tailored to that role and company context — they appear alongside the bank questions in a shuffled 5-question session. If no JD is provided, generation targets the thinnest categories in the bank (estimation, technical product sense) to keep the session varied.
+
+Session composition is enforced before the first question appears: `buildSessionQuestions()` pre-builds the full list, guarantees generated questions get fixed slots, and fills the rest from the bank. Skips count toward the 5-question total.
+
+### Follow-up questions
+
+After each answer, the evaluator signals whether a follow-up is warranted. Borderline answers always trigger one. A separate Haiku route generates a targeted question based on the specific gap found — not a generic probe. The candidate answers in the same flow; the follow-up exchange is passed to the Teacher at the end.
+
 ### Spy agent
 
 Enter a company name and the spy agent runs an agentic loop (up to 6 iterations): `web_search` → `web_fetch` → `submit_culture_profile` (finish tool). It prioritises revealed behaviour — who the company hires, what employees report on Glassdoor and Blind — over stated values. When the agent finds sufficient confident evidence, it activates culture-fit scoring in general personal questions.
@@ -52,20 +64,40 @@ After 5 questions: session summary, recurring gaps, concepts to study with next 
 ## Architecture
 
 ```
+POST /api/questions/generate
+  { mode: "jd" | "gap_fill", count, jd?, categories?, examples }
+        │
+        ▼
+  Claude Sonnet generates questions in bank style
+        │
+        ▼
+  buildSessionQuestions() composes full 5-question list (guaranteed slots + bank fill)
+
 POST /api/evaluate
   { question, answer, questionType, mustCover, cultureProfile? }
         │
         ▼
-  Router reads questionType
+  Router reads questionType → category evaluator
         │
         ▼
-  Category evaluator (system prompt + rubric + mustCover weighting)
+  Claude returns EvalOut via tool_use (verdict + scores + follow_up signal)
         │
         ▼
-  Claude returns EvalOut via tool_use (structured output)
+  normalize() validates fields, enforces verdict thresholds → EvalResult
+
+  If borderline (or warranted: true) →
+
+POST /api/questions/followup
+  { originalQuestion, answer, targetGap, reason }
         │
         ▼
-  normalize() validates fields, enforces verdict thresholds, returns EvalResult
+  Haiku generates targeted follow-up question
+
+POST /api/questions/followup-feedback
+  { originalQuestion, originalAnswer, evaluation, followUpQuestion, followUpAnswer }
+        │
+        ▼
+  Haiku returns { feedback, addressed_gap: boolean }
 
 POST /api/spy
   { companyName }
@@ -74,11 +106,8 @@ POST /api/spy
   Agentic loop: web_search (Tavily) + web_fetch, max 6 iterations
         │
         ▼
-  submit_culture_profile finish tool
-        │
-        ▼
   SSRF guard → normaliseProfile() → CultureProfile
-  (CultureProfile passed to /api/evaluate for culture_fit scoring)
+  (passed to /api/evaluate for culture_fit scoring)
 
 POST /api/teacher
   { sessionEvaluations[] }
@@ -94,7 +123,7 @@ POST /api/teacher
 - **Next.js 16** (App Router), **TypeScript**
 - **Claude API** (Anthropic) — evaluation, spy agent orchestration, teacher
 - **Tavily API** — web search for spy agent
-- **Vitest** — 16 tests covering spy agent normalisation and route behaviour
+- **Vitest** — 46 tests across 6 files (spy agent, session composition, question generation, follow-up routes)
 
 ---
 

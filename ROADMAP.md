@@ -41,14 +41,16 @@ A web app that simulates a real PM interview: realistic questions → structured
 
 ---
 
-## Phase 4 — AI-generated questions, JD upload, follow-up questions (in progress)
+## Phase 4 — AI-generated questions, JD upload, follow-up questions (done)
 
 Full design in `DESIGN-phase4.md`.
 
-- JD upload: paste a job description before the session to personalise question content, evaluator context, and Teacher feedback
-- AI-generated questions: Sonnet generates 2–3 questions per session in the style of the bank, targeting the JD (if provided) or thin bank categories (if not); bank questions always included as a quality floor
-- Follow-up questions: evaluator signals when a follow-up is warranted (`warranted`, `reason`, `target_gap` — no generated prose); a separate Haiku route generates the question on demand; appears automatically mid-session as if the interviewer asked it; max 2 per session; attaches to parent session entry, not counted toward the 5-question session
-- Light-touch follow-up feedback: Haiku route returns 2–3 sentence feedback + `addressed_gap: boolean`; Teacher sees the full follow-up exchange
+- JD upload: paste a job description before the session to get questions tailored to that role; editable until the first answer is submitted
+- AI-generated questions: Sonnet generates 2–3 questions per session in the style of the bank, targeting the JD (if provided) or thin bank categories (if not); guaranteed slots in the session; bank questions fill the rest as a quality floor
+- Session composition: `buildSessionQuestions()` — pure function, pre-builds the full 5-question list before the session starts; skips count toward the total
+- Follow-up questions: evaluator signals when a follow-up is warranted; borderline verdicts always trigger one; a separate Haiku route generates the question on demand; max 2 per session; follows up mid-session as if the interviewer pressed further
+- Light-touch follow-up feedback: Haiku returns 2–3 sentence feedback + `addressed_gap: boolean`; Teacher sees the full follow-up exchange
+- 30 new Vitest tests (46 total); four Codex review passes, all findings resolved
 
 ---
 
