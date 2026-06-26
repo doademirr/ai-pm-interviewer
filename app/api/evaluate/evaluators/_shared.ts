@@ -10,6 +10,12 @@ export type VerdictThresholds = {
 export const THRESHOLDS_5DIM: VerdictThresholds = { hire: 20, borderline: 15 };
 export const THRESHOLDS_4DIM: VerdictThresholds = { hire: 16, borderline: 12 };
 
+export type FollowUpSignal = {
+  warranted: boolean;
+  reason: "promising_but_shallow" | "interesting_thread" | "gap_to_probe";
+  target_gap: string;
+};
+
 export type EvalOut = {
   interview_verdict: "hire" | "borderline" | "no_hire";
   confidence: number;
@@ -22,6 +28,7 @@ export type EvalOut = {
   decision_rationale: string;
   bonus_signal: boolean;
   bonus_description: string;
+  follow_up: FollowUpSignal;
 };
 
 export function clamp(n: number, min: number, max: number): number {
@@ -40,6 +47,17 @@ export function normalize(out: unknown, thresholds: VerdictThresholds = THRESHOL
   const isValidVerdict = (v: unknown): v is "hire" | "borderline" | "no_hire" =>
     v === "hire" || v === "borderline" || v === "no_hire";
 
+  const rawFollowUp = (raw.follow_up ?? {}) as Record<string, unknown>;
+  const validReasons = ["promising_but_shallow", "interesting_thread", "gap_to_probe"] as const;
+  const rawReason = rawFollowUp.reason;
+  const follow_up: FollowUpSignal = {
+    warranted: rawFollowUp.warranted === true,
+    reason: validReasons.includes(rawReason as (typeof validReasons)[number])
+      ? (rawReason as (typeof validReasons)[number])
+      : "gap_to_probe",
+    target_gap: String(rawFollowUp.target_gap ?? ""),
+  };
+
   const result: EvalOut = {
     interview_verdict: isValidVerdict(verdict) ? verdict : "borderline",
     confidence:
@@ -55,6 +73,7 @@ export function normalize(out: unknown, thresholds: VerdictThresholds = THRESHOL
     decision_rationale: String(raw.decision_rationale ?? ""),
     bonus_signal: raw.bonus_signal === true,
     bonus_description: String(raw.bonus_description ?? ""),
+    follow_up,
   };
 
   const values = Object.values(result.scores);

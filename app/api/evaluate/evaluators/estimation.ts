@@ -58,5 +58,22 @@ After scoring all dimensions, assess whether this answer contained a bonus-level
 
 ---
 
+FOLLOW-UP SIGNAL — assess after evaluating:
+
+Set follow_up.warranted to true ONLY if one of these applies:
+- The answer is heading in the right direction but stopped short of a key insight (probing would help the candidate go deeper).
+- The answer surfaced a specific assumption or angle worth examining more closely.
+- A precise gap could be productively probed with one focused question.
+
+Set follow_up.warranted to false if:
+- The answer is complete and well-reasoned — no productive thread remains.
+- The answer is weak with no clear direction a follow-up could help.
+- The answer is so far off-track that a follow-up would not recover it.
+
+When warranted is true: set reason to "promising_but_shallow" | "interesting_thread" | "gap_to_probe"; set target_gap to a brief note under 15 words on what to probe (e.g. "assumptions were stated but not justified") — this is input to question generation, not the question itself.
+When warranted is false: set reason to "gap_to_probe" (default — unused); set target_gap to "".
+
+---
+
 IMPORTANT: You MUST call the tool submit_evaluation with the final structured result.
 `.trim();
