@@ -41,9 +41,17 @@ A web app that simulates a real PM interview: realistic questions → structured
 
 ---
 
-## Possible next phases (not prioritised)
+## Phase 4 — AI-generated questions, JD upload, follow-up questions (in progress)
 
-- JD upload: paste a job description to personalise question selection and Teacher feedback
-- AI-generated questions: model creates questions from scratch rather than drawing from a fixed bank
-- Real-time follow-up questions: model asks a follow-up based on the answer just given
+Full design in `DESIGN-phase4.md`.
+
+- JD upload: paste a job description before the session to personalise question content, evaluator context, and Teacher feedback
+- AI-generated questions: Sonnet generates 2–3 questions per session in the style of the bank, targeting the JD (if provided) or thin bank categories (if not); bank questions always included as a quality floor
+- Follow-up questions: evaluator signals when a follow-up is warranted (`warranted`, `reason`, `target_gap` — no generated prose); a separate Haiku route generates the question on demand; appears automatically mid-session as if the interviewer asked it; max 2 per session; attaches to parent session entry, not counted toward the 5-question session
+- Light-touch follow-up feedback: Haiku route returns 2–3 sentence feedback + `addressed_gap: boolean`; Teacher sees the full follow-up exchange
+
+---
+
+## Possible next phases
+
 - Voice mode: speak answers to simulate a live interview
