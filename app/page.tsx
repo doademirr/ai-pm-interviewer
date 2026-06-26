@@ -8,6 +8,7 @@ import {
 } from "./data/questionBank";
 import { GENERAL_PERSONAL_QUESTIONS } from "./data/generalPersonalQuestions";
 import type { CultureProfile } from "./api/spy/schema";
+import { buildSessionQuestions } from "./lib/sessionCompose";
 
 const QUESTIONS: Question[] = [...QUESTION_BANK, ...GENERAL_PERSONAL_QUESTIONS];
 
@@ -527,17 +528,7 @@ export default function Home() {
       // Fall back silently — session starts bank-only if generation fails
     }
 
-    // Enforce composition: generated questions are guaranteed; bank fills the rest.
-    // If generation returns fewer than expected, extra bank questions compensate.
-    const bankCount = MAX_QUESTIONS - generated.length;
-    const generatedIds = new Set(generated.map((q) => q.id));
-    const bankPool = QUESTIONS.filter((q) => !generatedIds.has(q.id));
-    const bankSelected = [...bankPool]
-      .sort(() => Math.random() - 0.5)
-      .slice(0, bankCount);
-
-    // Shuffle so generated questions are interspersed, not always first
-    const allSession = [...generated, ...bankSelected].sort(() => Math.random() - 0.5);
+    const allSession = buildSessionQuestions(generated, QUESTIONS, MAX_QUESTIONS);
 
     setSessionQuestions(allSession);
     setSessionQuestionIndex(0);
