@@ -97,6 +97,25 @@ export const QUESTION_BANK: Question[] = [
       "How would you go about finding out the number of yellow cars in England?",
   },
   {
+    id: "estimation-003",
+    type: "estimation",
+    difficulty: 2,
+    question: "Estimate the number of full-time software engineers in the United States.",
+  },
+  {
+    id: "estimation-004",
+    type: "estimation",
+    difficulty: 2,
+    question: "How many food delivery orders are placed in London on a typical Friday evening?",
+  },
+  {
+    id: "estimation-005",
+    type: "estimation",
+    difficulty: 3,
+    question:
+      "A startup is building an AI coding assistant. Estimate their monthly API costs at 10,000 monthly active users.",
+  },
+  {
     id: "behavioral-002",
     type: "behavioral",
     difficulty: 2,
