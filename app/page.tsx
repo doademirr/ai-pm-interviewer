@@ -1064,6 +1064,7 @@ export default function Home() {
           value={answer}
           onChange={(e) => setAnswer(e.target.value)}
           rows={10}
+          disabled={!sessionPrepared || !!evaluation}
           placeholder="Type your answer here..."
           style={{
             width: "100%",
@@ -1072,12 +1073,19 @@ export default function Home() {
             border: "1px solid #ddd",
             fontSize: 14,
             boxSizing: "border-box",
+            opacity: !sessionPrepared ? 0.5 : 1,
           }}
         />
 
+        {!sessionPrepared && (
+          <p style={{ fontSize: 12, color: "#666", marginTop: 6 }}>
+            Click &ldquo;Prepare session&rdquo; to start your interview.
+          </p>
+        )}
+
         <button
           type="submit"
-          disabled={loading || !currentQuestion || !!evaluation}
+          disabled={loading || !currentQuestion || !!evaluation || !sessionPrepared}
           style={{
             marginTop: 12,
             padding: "10px 14px",
@@ -1087,7 +1095,7 @@ export default function Home() {
             color: "white",
             fontWeight: 600,
             cursor: "pointer",
-            opacity: loading || !!evaluation ? 0.7 : 1,
+            opacity: loading || !!evaluation || !sessionPrepared ? 0.7 : 1,
           }}
         >
           {loading ? "Evaluating…" : "Submit Answer"}
