@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   QUESTION_BANK,
   type Question,
@@ -82,10 +82,9 @@ function pickRandomQuestion(params: {
   type: QuestionTypeOption;
   difficulty?: 1 | 2 | 3;
   usedIds: string[];
-  extraQuestions?: Question[];
 }): Question | null {
-  const { type, difficulty, usedIds, extraQuestions = [] } = params;
-  let pool = [...QUESTIONS, ...extraQuestions].filter((q) => !usedIds.includes(q.id));
+  const { type, difficulty, usedIds } = params;
+  let pool = QUESTIONS.filter((q) => !usedIds.includes(q.id));
   if (type !== "random") pool = pool.filter((q) => q.type === type);
   if (difficulty) pool = pool.filter((q) => q.difficulty === difficulty);
   if (pool.length === 0) return null;
@@ -404,15 +403,19 @@ export default function Home() {
   const [sessionEvaluations, setSessionEvaluations] = useState<SessionEntry[]>([]);
   const [pendingEntry, setPendingEntry] = useState<PendingEntry | null>(null);
 
+  // pre-built session: populated by handlePrepareSession with enforced composition.
+  // When populated, the session steps through this list in order instead of random-picking.
+  const [sessionQuestions, setSessionQuestions] = useState<Question[]>([]);
+  const [sessionQuestionIndex, setSessionQuestionIndex] = useState(0);
+
   // spy agent state
   const [companyName, setCompanyName] = useState("");
   const [cultureProfile, setCultureProfile] = useState<CultureProfile | null>(null);
   const [spyLoading, setSpyLoading] = useState(false);
   const [spyError, setSpyError] = useState<string | null>(null);
 
-  // JD + question generation state
+  // JD + session preparation state
   const [jd, setJd] = useState("");
-  const [generatedQuestions, setGeneratedQuestions] = useState<Question[]>([]);
   const [sessionPrepared, setSessionPrepared] = useState(false);
   const [preparingSession, setPreparingSession] = useState(false);
 
@@ -437,19 +440,32 @@ export default function Home() {
   const [followUpSubmitted, setFollowUpSubmitted] = useState(false);
   const [followUpError, setFollowUpError] = useState<string | null>(null);
 
+  // Ref tracking the active question ID so async follow-up responses from a
+  // previous question are discarded if the user has already moved on.
+  const currentQuestionIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    currentQuestionIdRef.current = currentQuestion?.id ?? null;
+  }, [currentQuestion]);
+
   const sessionDone = sessionCount >= MAX_QUESTIONS;
 
+  // Auto-prepare at mount so generation always runs, even without a JD.
+  // Falls back to 5 bank questions if the API is unavailable.
   useEffect(() => {
-    if (!currentQuestion) {
-      const first = pickRandomQuestion({
-        type: selectedType,
-        difficulty: selectedDifficulty,
-        usedIds: [],
-      });
-      setCurrentQuestion(first);
-    }
+    void handlePrepareSession();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // ── Session helpers ───────────────────────────────────────────────────────
+
+  function getNextQuestion(afterIndex: number, afterUsedIds: string[]): Question | null {
+    if (sessionQuestions.length > 0) {
+      return sessionQuestions[afterIndex] ?? null;
+    }
+    return pickRandomQuestion({ type: selectedType, difficulty: selectedDifficulty, usedIds: afterUsedIds });
+  }
+
+  // ── Handlers ─────────────────────────────────────────────────────────────
 
   async function handleResearchCompany() {
     if (!companyName.trim()) return;
@@ -477,12 +493,11 @@ export default function Home() {
   async function handlePrepareSession() {
     setPreparingSession(true);
 
+    const hasJd = jd.trim().length > 0;
+    const generateCount = hasJd ? 3 : 2;
+
     let generated: Question[] = [];
     try {
-      const hasJd = jd.trim().length > 0;
-      const mode = hasJd ? "jd" : "gap_fill";
-      const count = hasJd ? 3 : 2;
-
       const bankExamples = hasJd
         ? QUESTIONS.filter((q) => q.type === "technical_product_sense").slice(0, 4)
         : [
@@ -490,7 +505,11 @@ export default function Home() {
             ...QUESTIONS.filter((q) => q.type === "technical_product_sense").slice(0, 2),
           ];
 
-      const body: Record<string, unknown> = { mode, count, examples: bankExamples };
+      const body: Record<string, unknown> = {
+        mode: hasJd ? "jd" : "gap_fill",
+        count: generateCount,
+        examples: bankExamples,
+      };
       if (hasJd) body.jd = jd.trim();
       else body.categories = ["estimation", "technical_product_sense"];
 
@@ -502,24 +521,28 @@ export default function Home() {
 
       if (res.ok) {
         const data: Question[] = await res.json();
-        generated = Array.isArray(data) ? data : [];
+        generated = Array.isArray(data) ? data.slice(0, generateCount) : [];
       }
-      // Fall back silently if generation fails
     } catch {
-      // Fall back silently — session still starts with bank questions
+      // Fall back silently — session starts bank-only if generation fails
     }
 
-    setGeneratedQuestions(generated);
-    setSessionPrepared(true);
+    // Enforce composition: generated questions are guaranteed; bank fills the rest.
+    // If generation returns fewer than expected, extra bank questions compensate.
+    const bankCount = MAX_QUESTIONS - generated.length;
+    const generatedIds = new Set(generated.map((q) => q.id));
+    const bankPool = QUESTIONS.filter((q) => !generatedIds.has(q.id));
+    const bankSelected = [...bankPool]
+      .sort(() => Math.random() - 0.5)
+      .slice(0, bankCount);
 
-    // Replace first question with one from the prepared pool
-    const first = pickRandomQuestion({
-      type: selectedType,
-      difficulty: selectedDifficulty,
-      usedIds: [],
-      extraQuestions: generated,
-    });
-    setCurrentQuestion(first);
+    // Shuffle so generated questions are interspersed, not always first
+    const allSession = [...generated, ...bankSelected].sort(() => Math.random() - 0.5);
+
+    setSessionQuestions(allSession);
+    setSessionQuestionIndex(0);
+    setCurrentQuestion(allSession[0] ?? null);
+    setSessionPrepared(true);
     setPreparingSession(false);
   }
 
@@ -530,7 +553,6 @@ export default function Home() {
     setLoading(true);
     setError(null);
 
-    // Capture snapshots before any async state updates
     const snapshotAnswer = answer;
     const snapshotQuestion = currentQuestion;
 
@@ -566,8 +588,10 @@ export default function Home() {
         evaluation: data,
       });
 
-      // If follow-up is warranted and under cap, generate in background
+      // Generate follow-up in background if warranted and under cap.
+      // The ref check guards against stale responses leaking into the next question.
       if (data.follow_up?.warranted && followUpCount < MAX_FOLLOW_UPS) {
+        const questionIdAtSubmit = snapshotQuestion.id;
         setFollowUpLoading(true);
         fetch("/api/questions/followup", {
           method: "POST",
@@ -580,22 +604,17 @@ export default function Home() {
           }),
         })
           .then(async (fuRes) => {
-            if (fuRes.ok) {
-              const fuData: { question: string } = await fuRes.json();
-              if (fuData.question) {
-                setPendingFollowUp({
-                  question: fuData.question,
-                  targetGap: data.follow_up.target_gap,
-                });
-              }
+            if (!fuRes.ok) return;
+            const fuData: { question: string } = await fuRes.json();
+            // Discard if the user moved to the next question while this was loading
+            if (fuData.question && currentQuestionIdRef.current === questionIdAtSubmit) {
+              setPendingFollowUp({ question: fuData.question, targetGap: data.follow_up.target_gap });
+              // Count when offered — if skipped, the cap still applies
+              setFollowUpCount((c) => c + 1);
             }
           })
-          .catch(() => {
-            // Fail silently — follow-up is optional
-          })
-          .finally(() => {
-            setFollowUpLoading(false);
-          });
+          .catch(() => { /* fail silently */ })
+          .finally(() => { setFollowUpLoading(false); });
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
@@ -628,9 +647,8 @@ export default function Home() {
       const data: { feedback: string; addressed_gap: boolean } = await res.json();
       setFollowUpFeedback(data);
       setFollowUpSubmitted(true);
-      setFollowUpCount((c) => c + 1);
 
-      // Attach follow-up to pending entry so Teacher sees it
+      // Attach follow-up to pending entry so Teacher sees the full exchange
       setPendingEntry((prev) =>
         prev
           ? {
@@ -676,16 +694,17 @@ export default function Home() {
 
     const newCount = sessionCount + 1;
     const newUsedIds = [...usedQuestionIds, pendingEntry.questionId];
+    const nextIndex = sessionQuestionIndex + 1;
 
     setSessionEvaluations((prev) => [...prev, pendingEntry]);
     setSessionCount(newCount);
     setUsedQuestionIds(newUsedIds);
+    setSessionQuestionIndex(nextIndex);
     setPendingEntry(null);
     setEvaluation(null);
     setError(null);
     setAnswer("");
 
-    // Reset follow-up state for next question
     setPendingFollowUp(null);
     setFollowUpAnswer("");
     setFollowUpFeedback(null);
@@ -693,25 +712,20 @@ export default function Home() {
     setFollowUpError(null);
 
     if (newCount < MAX_QUESTIONS) {
-      const next = pickRandomQuestion({
-        type: selectedType,
-        difficulty: selectedDifficulty,
-        usedIds: newUsedIds,
-        extraQuestions: generatedQuestions,
-      });
-      setCurrentQuestion(next);
+      setCurrentQuestion(getNextQuestion(nextIndex, newUsedIds));
     }
   }
 
   function handleSkipQuestion() {
     if (sessionDone) return;
-    const next = pickRandomQuestion({
-      type: selectedType,
-      difficulty: selectedDifficulty,
-      usedIds: usedQuestionIds,
-      extraQuestions: generatedQuestions,
-    });
-    setCurrentQuestion(next);
+
+    // Skips count toward the 5-question total so the pre-built list is never
+    // exhausted before the session ends.
+    const newCount = sessionCount + 1;
+    const nextIndex = sessionQuestionIndex + 1;
+
+    setSessionCount(newCount);
+    setSessionQuestionIndex(nextIndex);
     setEvaluation(null);
     setPendingEntry(null);
     setError(null);
@@ -721,6 +735,10 @@ export default function Home() {
     setFollowUpFeedback(null);
     setFollowUpSubmitted(false);
     setFollowUpError(null);
+
+    if (newCount < MAX_QUESTIONS) {
+      setCurrentQuestion(getNextQuestion(nextIndex, usedQuestionIds));
+    }
   }
 
   async function handleGenerateTeacher() {
@@ -730,10 +748,7 @@ export default function Home() {
       const res = await fetch("/api/teacher", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          sessionEvaluations,
-          jd: jd.trim() || undefined,
-        }),
+        body: JSON.stringify({ sessionEvaluations, jd: jd.trim() || undefined }),
       });
       if (!res.ok) {
         const errText = await res.text();
@@ -753,6 +768,8 @@ export default function Home() {
     setUsedQuestionIds([]);
     setSessionEvaluations([]);
     setPendingEntry(null);
+    setSessionQuestions([]);
+    setSessionQuestionIndex(0);
     setTeacher(null);
     setTeacherLoading(false);
     setTeacherError(null);
@@ -767,7 +784,6 @@ export default function Home() {
     setFollowUpSubmitted(false);
     setFollowUpError(null);
     setFollowUpLoading(false);
-    setGeneratedQuestions([]);
     setSessionPrepared(false);
     setPreparingSession(false);
 
@@ -775,10 +791,14 @@ export default function Home() {
     setCurrentQuestion(first);
   }
 
-  // ── Company Intelligence panel ──────────────────────────────────────────────
+  // ── Company + prep panel ──────────────────────────────────────────────────
   function CompanyPanel() {
     const active = cultureFitActive(cultureProfile);
     const sessionStarted = sessionCount > 0 || !!pendingEntry;
+    const hasJd = jd.trim().length > 0;
+
+    const generatedCount = sessionQuestions.filter((q) => q.id.startsWith("generated-")).length;
+    const bankCount = sessionQuestions.length - generatedCount;
 
     return (
       <div style={{ padding: 16, border: "1px solid #ddd", borderRadius: 8, marginBottom: 16 }}>
@@ -787,7 +807,7 @@ export default function Home() {
           <span style={{ fontWeight: 400, fontSize: 13, color: "#666" }}>(optional)</span>
         </h2>
         <p style={{ fontSize: 13, color: "#666", marginBottom: 8 }}>
-          Research a company to turn on culture-fit scoring. Paste a job description to get tailored questions.
+          Research a company to activate culture-fit scoring. Paste a job description for tailored questions.
         </p>
 
         {/* Company research */}
@@ -866,9 +886,9 @@ export default function Home() {
           <textarea
             value={jd}
             onChange={(e) => setJd(e.target.value)}
-            placeholder="Paste the job description to get tailored interview questions…"
+            placeholder="Paste the job description to get questions tailored to this role…"
             rows={4}
-            disabled={sessionStarted}
+            disabled={sessionPrepared || sessionStarted}
             style={{
               width: "100%",
               padding: 10,
@@ -876,15 +896,15 @@ export default function Home() {
               border: "1px solid #ddd",
               fontSize: 13,
               resize: "vertical",
-              opacity: sessionStarted ? 0.5 : 1,
+              opacity: (sessionPrepared || sessionStarted) ? 0.5 : 1,
               boxSizing: "border-box",
             }}
           />
         </div>
 
-        {/* Prepare session button */}
-        {jd.trim() && !sessionStarted && (
-          <div style={{ marginTop: 8 }}>
+        {/* Prepare session — always shown before session starts */}
+        {!sessionStarted && (
+          <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
             <button
               type="button"
               onClick={handlePrepareSession}
@@ -892,7 +912,7 @@ export default function Home() {
               style={{
                 padding: "8px 14px",
                 borderRadius: 8,
-                border: "1px solid #2563eb",
+                border: `1px solid ${sessionPrepared ? "#166534" : "#2563eb"}`,
                 background: sessionPrepared ? "#f0fdf4" : "#2563eb",
                 color: sessionPrepared ? "#166534" : "white",
                 fontWeight: 600,
@@ -907,18 +927,22 @@ export default function Home() {
                 ? "✓ Session prepared"
                 : "Prepare session"}
             </button>
-            {sessionPrepared && generatedQuestions.length > 0 && (
-              <span style={{ marginLeft: 10, fontSize: 12, color: "#666" }}>
-                {generatedQuestions.length} tailored question{generatedQuestions.length !== 1 ? "s" : ""} added
-              </span>
-            )}
+            <span style={{ fontSize: 12, color: "#666" }}>
+              {sessionPrepared
+                ? generatedCount > 0
+                  ? `${generatedCount} generated${hasJd ? " (JD-tailored)" : " (gap-fill)"} + ${bankCount} from bank`
+                  : `${bankCount} bank questions (generation failed — bank only)`
+                : hasJd
+                ? "Generate questions tailored to this role"
+                : "Generate fresh questions to supplement the bank"}
+            </span>
           </div>
         )}
       </div>
     );
   }
 
-  // ── Teacher mode ─────────────────────────────────────────────────────────────
+  // ── Teacher mode ──────────────────────────────────────────────────────────
   if (sessionDone) {
     return (
       <main style={{ maxWidth: 800, margin: "40px auto", padding: 16 }}>
@@ -978,7 +1002,7 @@ export default function Home() {
     );
   }
 
-  // ── Normal mode ──────────────────────────────────────────────────────────────
+  // ── Normal mode ───────────────────────────────────────────────────────────
   return (
     <main style={{ maxWidth: 800, margin: "40px auto", padding: 16 }}>
       <h1 style={{ fontSize: 28, fontWeight: 700, marginBottom: 8 }}>
@@ -1056,7 +1080,7 @@ export default function Home() {
           </div>
         )}
 
-        {/* Action buttons — shown after evaluation */}
+        {/* Action buttons */}
         {evaluation && (
           <div style={{ marginTop: 12, display: "flex", gap: 12 }}>
             {!pendingFollowUp && !followUpLoading && !followUpSubmitted && (
@@ -1087,7 +1111,7 @@ export default function Home() {
 
         {evaluation && <EvaluationCard ev={evaluation} />}
 
-        {/* Follow-up question — appears automatically if warranted */}
+        {/* Follow-up — appears automatically if warranted */}
         {evaluation && (pendingFollowUp || followUpLoading) && !followUpSubmitted && (
           <div style={{ marginTop: 20, border: "1px solid #e5e7eb", borderRadius: 8, overflow: "hidden" }}>
             <div style={{ padding: "10px 14px", background: "#f8fafc", borderBottom: "1px solid #e5e7eb" }}>
@@ -1097,7 +1121,7 @@ export default function Home() {
             </div>
 
             {followUpLoading && !pendingFollowUp ? (
-              <div style={{ padding: "14px", fontSize: 13, color: "#666" }}>
+              <div style={{ padding: 14, fontSize: 13, color: "#666" }}>
                 Generating follow-up question…
               </div>
             ) : pendingFollowUp ? (
