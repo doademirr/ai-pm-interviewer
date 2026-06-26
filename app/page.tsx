@@ -579,9 +579,14 @@ export default function Home() {
         evaluation: data,
       });
 
-      // Generate follow-up in background if warranted and under cap.
+      // Generate follow-up in background if warranted or borderline, and under cap.
+      // Borderline verdict always triggers — Haiku reliably sets warranted:false even when
+      // a thread exists, so we use the verdict as the override for that range.
       // The ref check guards against stale responses leaking into the next question.
-      if (data.follow_up?.warranted && followUpCount < MAX_FOLLOW_UPS) {
+      const shouldFollowUp =
+        (data.follow_up?.warranted || data.interview_verdict === "borderline") &&
+        followUpCount < MAX_FOLLOW_UPS;
+      if (shouldFollowUp) {
         const questionIdAtSubmit = snapshotQuestion.id;
         setFollowUpLoading(true);
         fetch("/api/questions/followup", {
