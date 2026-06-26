@@ -25,6 +25,8 @@ Rules:
 
     const user = `Original question: ${originalQuestion}
 
+Original answer: ${String(originalAnswer ?? "").slice(0, 500)}
+
 Original answer gaps: ${gaps}
 
 Follow-up question asked: ${followUpQuestion}
