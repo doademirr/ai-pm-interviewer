@@ -448,14 +448,32 @@ export default function Home() {
     currentQuestionIdRef.current = currentQuestion?.id ?? null;
   }, [currentQuestion]);
 
+  // Monotonic ID for each prepare run. Incremented when a new run starts OR when
+  // JD changes mid-flight — lets the async callback detect it's been superseded.
+  const prepareIdRef = useRef(0);
+
   const sessionDone = sessionCount >= MAX_QUESTIONS;
 
-  // Auto-prepare at mount so generation always runs, even without a JD.
+  // Auto-prepare at mount (gap-fill mode, no JD) so generation always runs.
   // Falls back to 5 bank questions if the API is unavailable.
   useEffect(() => {
     void handlePrepareSession();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Invalidate the prepared session whenever the JD changes so the user
+  // knows to re-prepare. Also cancels any in-flight prepare run.
+  const isFirstRender = useRef(true);
+  useEffect(() => {
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      return;
+    }
+    prepareIdRef.current++;
+    setSessionPrepared(false);
+    setSessionQuestions([]);
+    setSessionQuestionIndex(0);
+  }, [jd]);
 
   // ── Session helpers ───────────────────────────────────────────────────────
 
@@ -492,6 +510,7 @@ export default function Home() {
   }
 
   async function handlePrepareSession() {
+    const myId = ++prepareIdRef.current;
     setPreparingSession(true);
 
     const hasJd = jd.trim().length > 0;
@@ -527,6 +546,9 @@ export default function Home() {
     } catch {
       // Fall back silently — session starts bank-only if generation fails
     }
+
+    // If JD changed while we were generating, discard this run.
+    if (prepareIdRef.current !== myId) return;
 
     const allSession = buildSessionQuestions(generated, QUESTIONS, MAX_QUESTIONS);
 
@@ -884,7 +906,7 @@ export default function Home() {
             onChange={(e) => setJd(e.target.value)}
             placeholder="Paste the job description to get questions tailored to this role…"
             rows={4}
-            disabled={sessionPrepared || sessionStarted}
+            disabled={sessionStarted}
             style={{
               width: "100%",
               padding: 10,
@@ -892,7 +914,7 @@ export default function Home() {
               border: "1px solid #ddd",
               fontSize: 13,
               resize: "vertical",
-              opacity: (sessionPrepared || sessionStarted) ? 0.5 : 1,
+              opacity: sessionStarted ? 0.5 : 1,
               boxSizing: "border-box",
             }}
           />
