@@ -1,6 +1,6 @@
 // Tools for the spy agent.
 //
-// Two parts, co-located (LEARNINGS.md L7):
+// Two parts, co-located:
 //   - EXECUTORS (runWebSearch, runWebFetch): pure, generic, no spy-specific
 //     logic. These are the reusable asset — promote to app/lib/tools/web.ts
 //     the day a second agent needs web search.
