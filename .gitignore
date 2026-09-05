@@ -43,3 +43,12 @@ next-env.d.ts
 # claude code artefacts
 .claude-audit.log
 .claude/settings.local.json
+
+# internal docs — kept locally, not published (learnings, diary, planning, AI-tooling context)
+AGENTS.md
+CLAUDE.md
+LEARNINGS.md
+PROGRESS.md
+DESIGN.md
+DESIGN-phase4.md
+project_structure.md

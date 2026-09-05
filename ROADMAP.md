@@ -43,8 +43,6 @@ A web app that simulates a real PM interview: realistic questions → structured
 
 ## Phase 4 — AI-generated questions, JD upload, follow-up questions (done)
 
-Full design in `DESIGN-phase4.md`.
-
 - JD upload: paste a job description before the session to get questions tailored to that role; editable until the first answer is submitted
 - AI-generated questions: Sonnet generates 2–3 questions per session in the style of the bank, targeting the JD (if provided) or thin bank categories (if not); guaranteed slots in the session; bank questions fill the rest as a quality floor
 - Session composition: `buildSessionQuestions()` — pure function, pre-builds the full 5-question list before the session starts; skips count toward the total
