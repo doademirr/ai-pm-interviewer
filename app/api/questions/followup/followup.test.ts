@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { POST } from "./route";
+import { ANSWER_MAX_CHARS } from "../../../lib/inputLimits";
 
 function modelResponse(text: string) {
   return new Response(
@@ -83,5 +84,31 @@ describe("followup route — response shape", () => {
 
     const res = await POST(makeReq(BASE_BODY));
     expect(res.status).toBe(500);
+  });
+});
+
+describe("followup route — answer limit", () => {
+  function captureFetch() {
+    const fetchMock = vi.fn().mockResolvedValue(modelResponse("What trade-off would you make?"));
+    vi.stubGlobal("fetch", fetchMock);
+    return () => JSON.parse(fetchMock.mock.calls[0][1].body as string);
+  }
+
+  it("passes a long answer to the follow-up generator untrimmed", async () => {
+    const getBody = captureFetch();
+    const answer = "a".repeat(4_990) + "ANSWER_END_MARK";
+
+    await POST(makeReq({ ...BASE_BODY, answer }));
+
+    expect(getBody().messages[0].content).toContain("ANSWER_END_MARK");
+  });
+
+  it("cuts the answer at the shared answer limit", async () => {
+    const getBody = captureFetch();
+    const answer = "a".repeat(ANSWER_MAX_CHARS) + "BEYOND_ANSWER_LIMIT";
+
+    await POST(makeReq({ ...BASE_BODY, answer }));
+
+    expect(getBody().messages[0].content).not.toContain("BEYOND_ANSWER_LIMIT");
   });
 });

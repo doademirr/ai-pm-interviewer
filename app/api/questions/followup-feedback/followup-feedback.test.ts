@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { POST } from "./route";
+import { ANSWER_MAX_CHARS } from "../../../lib/inputLimits";
 
 function modelResponse(text: string) {
   return new Response(
@@ -108,5 +109,39 @@ describe("followup-feedback route — schema compliance", () => {
 
     const res = await POST(makeReq(BASE_BODY));
     expect(res.status).toBe(500);
+  });
+});
+
+describe("followup-feedback route — answer limit", () => {
+  function captureFetch() {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(modelResponse(JSON.stringify({ feedback: "Better.", addressed_gap: true })));
+    vi.stubGlobal("fetch", fetchMock);
+    return () => JSON.parse(fetchMock.mock.calls[0][1].body as string);
+  }
+
+  it("passes long original and follow-up answers untrimmed", async () => {
+    const getBody = captureFetch();
+    const originalAnswer = "o".repeat(4_990) + "ORIGINAL_END_MARK";
+    const followUpAnswer = "f".repeat(4_990) + "FOLLOWUP_END_MARK";
+
+    await POST(makeReq({ ...BASE_BODY, originalAnswer, followUpAnswer }));
+
+    const content = getBody().messages[0].content as string;
+    expect(content).toContain("ORIGINAL_END_MARK");
+    expect(content).toContain("FOLLOWUP_END_MARK");
+  });
+
+  it("cuts both answers at the shared answer limit", async () => {
+    const getBody = captureFetch();
+    const originalAnswer = "o".repeat(ANSWER_MAX_CHARS) + "BEYOND_ORIGINAL_LIMIT";
+    const followUpAnswer = "f".repeat(ANSWER_MAX_CHARS) + "BEYOND_FOLLOWUP_LIMIT";
+
+    await POST(makeReq({ ...BASE_BODY, originalAnswer, followUpAnswer }));
+
+    const content = getBody().messages[0].content as string;
+    expect(content).not.toContain("BEYOND_ORIGINAL_LIMIT");
+    expect(content).not.toContain("BEYOND_FOLLOWUP_LIMIT");
   });
 });

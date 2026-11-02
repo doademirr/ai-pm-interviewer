@@ -9,6 +9,7 @@ import {
 import { GENERAL_PERSONAL_QUESTIONS } from "./data/generalPersonalQuestions";
 import type { CultureProfile } from "./api/spy/schema";
 import { buildSessionQuestions } from "./lib/sessionCompose";
+import { JD_MAX_CHARS, ANSWER_MAX_CHARS, overLimitNotice } from "./lib/inputLimits";
 
 const QUESTIONS: Question[] = [...QUESTION_BANK, ...GENERAL_PERSONAL_QUESTIONS];
 
@@ -116,6 +117,13 @@ function ScoreDots({ score }: { score: number }) {
       <span style={{ color: "#ddd" }}>{"●".repeat(5 - rounded)}</span>
     </span>
   );
+}
+
+// Tells the user when text is over its limit, so nothing is cut silently.
+function LengthNotice({ length, max }: { length: number; max: number }) {
+  const notice = overLimitNotice(length, max);
+  if (!notice) return null;
+  return <p style={{ fontSize: 12, color: "#b45309", marginTop: 6 }}>{notice}</p>;
 }
 
 function EvaluationCard({ ev }: { ev: EvalResult }) {
@@ -926,6 +934,7 @@ export default function Home() {
               boxSizing: "border-box",
             }}
           />
+          <LengthNotice length={jd.trim().length} max={JD_MAX_CHARS} />
         </div>
 
         {/* Prepare session — always shown before session starts */}
@@ -1076,6 +1085,7 @@ export default function Home() {
             opacity: !sessionPrepared ? 0.5 : 1,
           }}
         />
+        <LengthNotice length={answer.length} max={ANSWER_MAX_CHARS} />
 
         {!sessionPrepared && (
           <p style={{ fontSize: 12, color: "#666", marginTop: 6 }}>
@@ -1178,6 +1188,7 @@ export default function Home() {
                       boxSizing: "border-box",
                     }}
                   />
+                  <LengthNotice length={followUpAnswer.length} max={ANSWER_MAX_CHARS} />
                   <div style={{ marginTop: 8, display: "flex", gap: 8 }}>
                     <button
                       type="button"

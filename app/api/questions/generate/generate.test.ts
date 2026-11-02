@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { POST } from "./route";
+import { JD_MAX_CHARS } from "../../../lib/inputLimits";
 
 function modelResponse(text: string) {
   return new Response(
@@ -127,5 +128,33 @@ describe("generate route — schema and ID stamping", () => {
 
     const ids = data.map((q: { id: string }) => q.id);
     expect(new Set(ids).size).toBe(ids.length);
+  });
+});
+
+describe("generate route — JD limit", () => {
+  function captureFetch() {
+    const fetchMock = vi.fn().mockResolvedValue(modelResponse(JSON.stringify(VALID_GENERATED)));
+    vi.stubGlobal("fetch", fetchMock);
+    return () => JSON.parse(fetchMock.mock.calls[0][1].body as string);
+  }
+
+  it("passes a full 10,000-character JD to the generator untrimmed", async () => {
+    const getBody = captureFetch();
+    const jd = "j".repeat(9_990) + "JD_END_MARK";
+
+    await POST(makeReq({ mode: "jd", jd, count: 2, examples: EXAMPLE_QUESTIONS }));
+
+    expect(getBody().messages[0].content).toContain("JD_END_MARK");
+  });
+
+  it("cuts the JD at the shared JD limit", async () => {
+    const getBody = captureFetch();
+    const jd = "j".repeat(JD_MAX_CHARS) + "BEYOND_JD_LIMIT";
+
+    await POST(makeReq({ mode: "jd", jd, count: 2, examples: EXAMPLE_QUESTIONS }));
+
+    const content = getBody().messages[0].content as string;
+    expect(content).toContain("j".repeat(JD_MAX_CHARS));
+    expect(content).not.toContain("BEYOND_JD_LIMIT");
   });
 });

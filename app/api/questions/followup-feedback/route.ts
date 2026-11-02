@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { ANSWER_MAX_CHARS } from "../../../lib/inputLimits";
 
 export async function POST(req: Request) {
   try {
@@ -25,13 +26,13 @@ Rules:
 
     const user = `Original question: ${originalQuestion}
 
-Original answer: ${String(originalAnswer ?? "").slice(0, 500)}
+Original answer: ${String(originalAnswer ?? "").slice(0, ANSWER_MAX_CHARS)}
 
 Original answer gaps: ${gaps}
 
 Follow-up question asked: ${followUpQuestion}
 
-Candidate's follow-up answer: ${String(followUpAnswer ?? "").slice(0, 800)}
+Candidate's follow-up answer: ${String(followUpAnswer ?? "").slice(0, ANSWER_MAX_CHARS)}
 
 Assess:`;
 

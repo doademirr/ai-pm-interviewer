@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { ANSWER_MAX_CHARS } from "../../../lib/inputLimits";
 
 const REASON_LABELS: Record<string, string> = {
   promising_but_shallow: "The answer was heading in the right direction but didn't go deep enough.",
@@ -28,7 +29,7 @@ Rules:
 
     const user = `Original question: ${originalQuestion}
 
-Candidate's answer: ${String(answer ?? "").slice(0, 1000)}
+Candidate's answer: ${String(answer ?? "").slice(0, ANSWER_MAX_CHARS)}
 
 Follow-up signal: ${REASON_LABELS[reason] ?? REASON_LABELS.gap_to_probe}
 What to probe: ${targetGap}
